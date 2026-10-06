@@ -82,3 +82,14 @@ run_logs*/
 *.zip
 node_modules/
 .wrangler/
+# Secretos y credenciales - NUNCA versionar
+.env*
+*.pem
+*.p12
+*.aab
+*.apk
+google-services.json
+service-account*.json
+*credentials*.json
+signing-key-info*
+.firebaserc

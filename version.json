@@ -1,5 +1,5 @@
 {
-  "version": "7.20.47",
+  "version": "7.20.48",
   "buildDate": "2026-10-06",
-  "description": "feat: paridad con APK nativo - permisos por rol, recuperacion de contrasena, buscador de creditos, GPS de alta precision y CSS responsive"
+  "description": "feat: splash animado propio, permissions.js en el precache del SW y 'Mantener sesion' real"
 }

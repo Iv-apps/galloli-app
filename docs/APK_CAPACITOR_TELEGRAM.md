@@ -281,14 +281,34 @@ curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
   https://api.github.com/repos/Iv-apps/galloli-app/actions/secrets
 ```
 
-### 4.2 Generar `TELEGRAM_SESSION` (una sola vez)
+### 4.2 Generar `TELEGRAM_SESSION` y el canal dedicado (una sola vez)
 
-Con `api_id`/`api_hash` de <https://my.telegram.org>:
+El CI **no puede** iniciar sesión en Telegram por ti: hacen falta tu teléfono y el código que
+llega a la app. Por eso el trabajo se hace desde tu PC con `.github/scripts/telegram_setup.py`
+(necesita el `api_id`/`api_hash` de <https://my.telegram.org>):
 
 ```bash
 pip install telethon
-python .github/scripts/gen_session.py   # pide API_ID y API_HASH, imprime el StringSession
+python .github/scripts/telegram_setup.py
+# con nexus, además sube los secrets al repo automáticamente:
+nexus run -e production -- python .github/scripts/telegram_setup.py --push-secrets
 ```
+
+Hace tres cosas:
+
+1. Inicia sesión y comprueba que quede **autorizada** (que exista el secret no basta).
+2. Busca o **crea el canal privado `GallOli Artifacts`** — el canal único para artifacts de
+   GallOli — y te devuelve su enlace de invitación.
+3. Imprime `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` y `TELEGRAM_SESSION` listos para pegar, o los
+   sube solo con `--push-secrets`.
+
+Si las copias viejas a nivel de repo están tapando las de organización, hay un atajo:
+
+```bash
+python .github/scripts/telegram_setup.py --limpiar-secrets-de-repo
+```
+
+`gen_session.py` sigue existiendo como versión mínima (solo imprime el string).
 
 Ese string va en el secret `TELEGRAM_SESSION` (org y/o repo). **Es una credencial de tu cuenta
 de Telegram**: no lo pegues en ningún archivo, issue ni chat. Si se filtra, revócalo desde
@@ -296,34 +316,87 @@ Telegram → Dispositivos → Terminar sesión y regenera.
 
 ### 4.3 Publicar el APK (`send_native_apk.py`)
 
-Puntos finos que ya están resueltos en el script:
+Reescrito el 2026-10-06 después de que el APK **dejara de llegar durante varios builds sin que
+nadie se enterara**. Lo que estaba mal y cómo quedó:
 
-- Usa Telethon con `StringSession` (no hay archivo `.session` en el runner).
-- **Busca el canal por nombre** (`GallOli Builds`) en los diálogos, y si no es miembro, se une
-  con `ImportChatInviteRequest` usando la invite (`https://t.me/+QPr885dQgl0wNDgx`).
-- **Caption ≤ 1024 caracteres** es límite duro de Telegram: el mensaje del commit se recorta a
-  400 chars y el caption final a 1024. Sin esto, el envío falla con `MESSAGE_TOO_LONG`.
-- Si el APK no existe, sale con código ≠ 0.
+| Antes | Ahora |
+|---|---|
+| `async with TelegramClient(...)`: si la sesión no valía, Telethon pedía el teléfono por stdin y el paso moría con `EOFError: EOF when reading a line` | `connect()` + `is_user_authorized()`: sin prompts, y si la sesión está caducada lo dice y sale con código 1 |
+| Fallback que enviaba al **primer canal de la cuenta** (el APK llegaba a otro sitio y el run quedaba verde) | Resolución determinista: `@usuario` → enlace de invitación → título exacto → **crear el canal**; si no hay destino, falla |
+| Canal buscado por nombre (`GallOli Builds`) | Canal dedicado **`GallOli Artifacts`** (`TELEGRAM_CHANNEL_TITLE`, `TELEGRAM_CHANNEL_INVITE`, `TELEGRAM_CHANNEL_USERNAME`) |
+| Sin diagnóstico | Imprime la cuenta que envía y los canales visibles, verifica el mensaje enviado y escribe el resultado en `$GITHUB_STEP_SUMMARY` |
+| — | Valida los secrets **antes** de conectar (faltantes y longitud de la `StringSession`) y publica un `sha256[:12]` de la sesión para poder comparar org vs repo sin exponerla |
 
-```python
-async with TelegramClient(StringSession(session_str), api_id, api_hash) as client:
-    channel = await get_channel(client)
-    await client.send_file(channel, APK_PATH, caption=caption)
+Se mantiene: Telethon con `StringSession` (no hay archivo `.session` en el runner), **caption ≤
+1024** caracteres (el mensaje del commit se recorta a 400) y salida ≠ 0 si el APK no existe.
+
+### 4.3.1 El diagnóstico del 2026-10-06 (run #40)
+
+Con el script nuevo, el run #40 ya dijo exactamente qué pasaba:
+
+```
+[info] session: 353 chars, sha256[:12]=987ce34021d6
+NO SE ENVIO EL APK A TELEGRAM
+   Motivo: TELEGRAM_SESSION existe pero Telegram la rechaza (sesion caducada, revocada o de otra cuenta)
 ```
 
-### 4.4 Que un fallo de Telegram no tumbe el build
+O sea: el secret que se resuelve (la copia del **repo**, de abril) es una sesión real pero
+**muerta**. Telegram ya no acepta su clave de autorización, así que Telethon intentaba pedir el
+teléfono (de ahí el `EOFError` original).
 
-El APK ya está subido como *artifact* de Actions. Por eso el paso va con
-`continue-on-error: true`:
+Arreglo (con tu teléfono, 2 minutos, desde tu PC):
+
+```bash
+pip install telethon
+python .github/scripts/telegram_setup.py --push-secrets
+```
+
+Eso regenera la sesión, **crea el canal `GallOli Artifacts`** y deja los secrets puestos. Si
+prefieres primero descartar que la sesión buena esté a nivel de organización:
+
+```bash
+python .github/scripts/telegram_setup.py --limpiar-secrets-de-repo
+```
+
+borra las tres copias del repo (de abril) para que vuelvan a aplicar las de `Iv-apps` (de
+julio) y relanza el workflow. El `sha256[:12]` del log te dice cuál de las dos está en uso: si
+tras borrar las copias el hash cambia, es que estaba aplicando la de organización.
+
+```python
+client = TelegramClient(StringSession(session), api_id, api_hash)
+await client.connect()                      # connect() no pide nada por stdin
+if not await client.is_user_authorized():   # sesión caducada -> mensaje claro y exit 1
+    ...
+canal, origen = await resolver_canal(client)  # @usuario | invitación | título | crearlo
+await client.send_file(canal, APK_PATH, caption=caption, force_document=True)
+```
+
+### 4.4 Que un fallo de Telegram no tumbe el build… pero tampoco se esconda
+
+El APK ya está subido como *artifact* de Actions, así que el paso va con
+`continue-on-error: true`. **El problema** es que eso convierte un fallo en un ✅ verde: el
+2026-10-06 el paso 31 de todos los runs decía `success` mientras el log tenía un `EOFError`. Por
+eso ahora el fallo se hace visible de tres formas:
+
+1. El script escribe el motivo en el **resumen del run** (`$GITHUB_STEP_SUMMARY`).
+2. Un paso extra emite una **anotación `::error::`** (aparece en la pestaña *Annotations*).
+3. El log del paso explica la causa y el arreglo, sin traceback ni esperas interactivas.
 
 ```yaml
 - name: Send APK to Telegram
+  id: telegram
   continue-on-error: true
   env:
     TELEGRAM_API_ID:   ${{ secrets.TELEGRAM_API_ID }}
     TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
     TELEGRAM_SESSION:  ${{ secrets.TELEGRAM_SESSION }}
+    TELEGRAM_CHANNEL_TITLE: ${{ vars.TELEGRAM_CHANNEL_TITLE || 'GallOli Artifacts' }}
   run: python .github/scripts/send_native_apk.py
+
+- name: Avisar si el APK no llego a Telegram
+  if: steps.telegram.outcome == 'failure'
+  run: |
+    echo "::error title=El APK no llego a Telegram::Revisa el resumen del run y el log del paso."
 ```
 
 ### 4.5 Reutilizarlo desde OTROS repos (patrón recomendado)
@@ -342,7 +415,7 @@ on:
     inputs:
       artifact-path: { required: true,  type: string }
       caption:       { required: false, type: string, default: "" }
-      channel:       { required: false, type: string, default: "GallOli Builds" }
+      channel:       { required: false, type: string, default: "GallOli Artifacts" }
     secrets:
       TELEGRAM_API_ID:   { required: true }
       TELEGRAM_API_HASH: { required: true }
@@ -429,10 +502,19 @@ done
 Resultado: al abrir se ve el azul de marca y, encima, tu splash animado web. Cero branding de
 Capacitor.
 
-### 5.2 Nivel 1 (recomendado): splash animado en HTML/CSS
+### 5.2 Nivel 1 (recomendado): splash animado en HTML/CSS — **implementado en 7.20.48**
 
-Es animación real, cero código nativo, y se ve **el mismo** splash en PWA y en APK.
-En `index.html`, justo después de `<body>`:
+Es animación real, cero código nativo, y se ve **el mismo** splash en PWA y en APK. En GallOli
+ya está en `index.html` (`#galloli-splash`) con la animación de marca (logo con *pop* + halo,
+título y subtítulo que suben, barra de progreso) y en `js/app.js` con `App.hideSplash()`.
+Dos detalles que la versión anterior no tenía y **importan**:
+
+- `window.__galloliSplashShownAt` + `App.SPLASH_MIN_MS` (1400 ms): el splash espera un mínimo
+  antes de irse. Antes se ocultaba al terminar `init()` y en equipos rápidos casi no se veía.
+- `prefers-reduced-motion`: sin animaciones y con `hideSplash` a 200 ms.
+
+El markup es así (el CSS va **inline**, pegado al div, para que no dependa de ninguna petición
+antes del primer pintado):
 
 ```html
 <div id="galloli-splash" aria-hidden="true">
@@ -537,8 +619,10 @@ solo permite animar el icono con `windowSplashScreenAnimatedIcon` +
 - [ ] `AndroidManifest.xml` apunta a `AppTheme.NoActionBar`.
 - [ ] `windowBackground` = color de marca (nada de blanco).
 - [ ] `drawable-port-*/splash.png` regenerados con tu icono (no el de Capacitor).
-- [ ] Splash web (`#galloli-splash`) que se quita con `load` **y** con un timeout de seguridad.
-- [ ] `@media (prefers-reduced-motion)` respetado.
+- [x] Splash web (`#galloli-splash`) que se quita con `load` **y** con un timeout de seguridad
+      de 8 s que, si nada más corrió, borra el div a mano.
+- [x] `@media (prefers-reduced-motion)` respetado (animaciones off y salida rápida).
+- [x] Tiempo mínimo de exhibición (`App.SPLASH_MIN_MS`, 1400 ms) para que la animación se vea.
 
 ---
 
@@ -554,8 +638,11 @@ solo permite animar el icono con `windowSplashScreenAnimatedIcon` +
 7. Secrets de repo: keystore (`base64`), `GOOGLE_SERVICES_JSON`.
 8. Telegram: usar los secrets **de organización** `TELEGRAM_API_ID/HASH/SESSION` y
    `secrets: inherit` si llamas a un workflow reutilizable.
-9. `continue-on-error: true` en el paso de Telegram (el artifact ya está subido).
-10. Splash animado web (§5.2) + `windowBackground` de marca.
+9. `continue-on-error: true` en el paso de Telegram **+ anotación de error** para que el fallo no
+   se esconda (§4.4), y un canal propio por proyecto (`TELEGRAM_CHANNEL_TITLE`).
+10. Sesión de Telegram generada con un script propio, no a mano (§4.2): la sesión caduca y hay
+    que poder regenerarla en un comando.
+11. Splash animado web (§5.2) + `windowBackground` de marca.
 
 ---
 
@@ -571,3 +658,7 @@ solo permite animar el icono con `windowSplashScreenAnimatedIcon` +
 | El GPS deja de actualizar con la pantalla apagada | Doze / battery optimization | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` + exclusión pedida a mano |
 | Se ve un frame blanco antes del WebView | `windowBackground` claro | Tema con `#185a83` |
 | Se ve el logo de Capacitor al abrir | `AppTheme.NoActionBarLaunch` + `@drawable/splash` | Quitar el estilo y repuntar el tema del manifest |
+| El APK **no llega** a Telegram pero el run sale verde | El paso va con `continue-on-error: true`: el log tenía `EOFError: EOF when reading a line` (sesión inválida → Telethon pedía el teléfono por stdin) | `connect()` + `is_user_authorized()`, resumen del run + anotación `::error::` (§4.4) |
+| El APK llegaba a un canal que no era | `send_native_apk.py` caía a "el primer canal de la cuenta" si no encontraba el suyo | Resolución determinista + canal dedicado `GallOli Artifacts` (§4.3) |
+| "Mantener sesión iniciada" no tenía ningún efecto | `loginWithEmail(email, password)` ignoraba el tercer argumento (`keepSession`) | Sesión volátil en `sessionStorage` + `clearVolatileSession()` al salir |
+| El splash se veía "un parpadeo" | `init()` terminaba antes de que se apreciara la animación | `SPLASH_MIN_MS` de 1400 ms (con `prefers-reduced-motion` a 200 ms) |

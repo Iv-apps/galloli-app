@@ -145,12 +145,30 @@ const App = {
         this.setupVisibilityChangeHandler();
     },
 
-    hideSplash() {
-        const splash = document.getElementById('splash-screen');
-        if (!splash) return;
-        splash.style.opacity = '0';
-        splash.style.visibility = 'hidden';
-        setTimeout(() => splash.remove(), 500);
+    // Splash animado propio (PWA + APK) - ver docs/APK_CAPACITOR_TELEGRAM.md seccion 5.
+    // Respeta un tiempo minimo de exhibicion para que la animacion se vea de verdad
+    // (si la app arranca rapido, antes se ocultaba casi al instante).
+    SPLASH_MIN_MS: 1400,
+
+    hideSplash(force) {
+        const splash = document.getElementById('galloli-splash') || document.getElementById('splash-screen');
+        if (!splash || splash.dataset.hiding === '1') return;
+
+        const reduceMotion = typeof window.matchMedia === 'function'
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const minMs = reduceMotion ? 200 : this.SPLASH_MIN_MS;
+        const shownAt = window.__galloliSplashShownAt || Date.now();
+        const restante = force ? 0 : Math.max(0, minMs - (Date.now() - shownAt));
+
+        if (restante > 0) {
+            setTimeout(() => this.hideSplash(true), restante);
+            return;
+        }
+
+        splash.dataset.hiding = '1';
+        splash.classList.add('is-hidden');
+        splash.setAttribute('aria-hidden', 'true');
+        setTimeout(() => { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 600);
     },
     
     // NUEVO: Detectar cuando la app se vuelve visible y recargar datos

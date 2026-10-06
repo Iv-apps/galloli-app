@@ -5,7 +5,9 @@ const AUTH_CONFIG = {
     API_URL: 'https://galloli-sync.ivanbj-96.workers.dev',
     TOKEN_KEY: 'galloli_auth_token',
     USER_KEY: 'galloli_user',
-    BUSINESS_KEY: 'galloli_business'
+    BUSINESS_KEY: 'galloli_business',
+    // Sesión volátil: cuando el usuario desmarca "Mantener sesión iniciada"
+    VOLATILE_KEY: 'galloli_session_volatile'
 };
 
 class AuthManager {
@@ -60,11 +62,40 @@ class AuthManager {
         });
     }
 
+    // ------------------------------------------------------------------
+    // Sesión volátil ("Mantener sesión iniciada" desactivado)
+    // Vive sólo en sessionStorage: muere al cerrar la pestaña o la app.
+    // ------------------------------------------------------------------
+    writeVolatileSession(data) {
+        try {
+            sessionStorage.setItem(AUTH_CONFIG.VOLATILE_KEY, JSON.stringify(data));
+        } catch (e) {
+            console.warn('No se pudo guardar la sesión volátil:', e.message);
+        }
+    }
+
+    readVolatileSession() {
+        try {
+            const raw = sessionStorage.getItem(AUTH_CONFIG.VOLATILE_KEY);
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    clearVolatileSession() {
+        try {
+            sessionStorage.removeItem(AUTH_CONFIG.VOLATILE_KEY);
+        } catch (e) { /* silencioso */ }
+    }
+
     async loadSession() {
         try {
-            const token = await this.getFromDB(AUTH_CONFIG.TOKEN_KEY);
-            const user = await this.getFromDB(AUTH_CONFIG.USER_KEY);
-            const business = await this.getFromDB(AUTH_CONFIG.BUSINESS_KEY);
+            // La sesión volátil tiene prioridad: significa que el usuario no quiso persistirla
+            const volatil = this.readVolatileSession();
+            const token = volatil ? volatil.token : await this.getFromDB(AUTH_CONFIG.TOKEN_KEY);
+            const user = volatil ? volatil.user : await this.getFromDB(AUTH_CONFIG.USER_KEY);
+            const business = volatil ? volatil.business : await this.getFromDB(AUTH_CONFIG.BUSINESS_KEY);
             
             if (token && user && business) {
                 this.token = token;
@@ -97,13 +128,24 @@ class AuthManager {
         return false;
     }
 
-    async saveSession(token, user, business) {
+    async saveSession(token, user, business, keepSession = true) {
             this.token = token;
             this.user = user;
             this.business = business;
-            await this.saveToDB(AUTH_CONFIG.TOKEN_KEY, token);
-            await this.saveToDB(AUTH_CONFIG.USER_KEY, user);
-            await this.saveToDB(AUTH_CONFIG.BUSINESS_KEY, business);
+
+            if (keepSession === false) {
+                // No persistir: sólo en memoria de esta pestaña/ventana (sessionStorage)
+                await this.deleteFromDB(AUTH_CONFIG.TOKEN_KEY);
+                await this.deleteFromDB(AUTH_CONFIG.USER_KEY);
+                await this.deleteFromDB(AUTH_CONFIG.BUSINESS_KEY);
+                this.writeVolatileSession({ token, user, business });
+                console.log('🔒 Sesión NO persistente (se cerrará al salir de la app)');
+            } else {
+                this.clearVolatileSession();
+                await this.saveToDB(AUTH_CONFIG.TOKEN_KEY, token);
+                await this.saveToDB(AUTH_CONFIG.USER_KEY, user);
+                await this.saveToDB(AUTH_CONFIG.BUSINESS_KEY, business);
+            }
 
             // Si ya hay suscripción push en el navegador, registrarla en el servidor
             setTimeout(async () => {
@@ -122,6 +164,7 @@ class AuthManager {
 
 
     async clearSession() {
+        this.clearVolatileSession();
         this.token = null;
         this.user = null;
         this.business = null;
@@ -209,7 +252,7 @@ class AuthManager {
     }
 
     // Login con Email
-    async loginWithEmail(email, password) {
+    async loginWithEmail(email, password, keepSession = true) {
         try {
             console.log('📧 Iniciando login con email...');
             
@@ -227,7 +270,7 @@ class AuthManager {
             const data = await response.json();
             
             // Guardar sesión
-            await this.saveSession(data.token, data.user, data.business);
+            await this.saveSession(data.token, data.user, data.business, keepSession);
             
             console.log('✅ Login exitoso:', data.user.name);
             

@@ -1,5 +1,5 @@
 // Service Worker con versionado automatico
-const APP_VERSION = '7.20.47'; // fix: paridad con la PWA/TWA - [hidden] respetado, CustomSelect.destroy robusto
+const APP_VERSION = '7.20.48'; // feat: splash animado propio, permissions.js en precache, keepSession real
 const CACHE_NAME = `galloli-v${APP_VERSION}`;
 const DATA_CACHE_NAME = `galloli-data-v${APP_VERSION}`;
 
@@ -23,6 +23,8 @@ async function getStaticResources() {
             '/js/modules.js',
             '/js/app.js',
             '/js/auth.js',
+            '/js/permissions.js',
+            '/js/ble-bundle.js',
             '/js/offline-maps.js',
             '/js/offline-queue.js',
             '/js/sync-engine.js',

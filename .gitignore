@@ -95,3 +95,7 @@ service-account*.json
 signing-key-info*
 .firebaserc
 
+
+# Python (scripts de CI)
+__pycache__/
+*.pyc

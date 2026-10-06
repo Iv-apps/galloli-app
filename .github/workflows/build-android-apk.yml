@@ -67,7 +67,22 @@ jobs:
           java-version: '21'
 
       - name: Setup Android SDK
+        id: setup_sdk
         uses: android-actions/setup-android@v3
+        continue-on-error: true
+
+      - name: Setup Android SDK (reintento)
+        if: steps.setup_sdk.outcome != 'success'
+        uses: android-actions/setup-android@v3
+        continue-on-error: true
+
+      - name: Verificar Android SDK
+        run: |
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "sdkmanager no disponible"
+            exit 1
+          fi
+          sdkmanager --version
 
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true

@@ -1,4 +1,4 @@
-﻿// app.js - COMPLETO Y FUNCIONAL
+// app.js - COMPLETO Y FUNCIONAL
 const App = {
     currentPage: 'dashboard',
     currentDate: Utils.getTodayDate(),
@@ -304,6 +304,12 @@ const App = {
         const urlParams = new URLSearchParams(window.location.search);
         const resetToken = urlParams.get('reset');
         if (!resetToken) return;
+        // El token se inyecta en un atributo onclick: validar formato hex antes de usarlo
+        if (!/^[a-f0-9]{32,128}$/i.test(resetToken)) {
+            console.warn('⚠️ Token de recuperación con formato inválido, ignorado');
+            window.history.replaceState({}, document.title, window.location.pathname);
+            return;
+        }
         window.history.replaceState({}, document.title, window.location.pathname);
         setTimeout(() => {
             const modal = document.createElement('div');
@@ -846,13 +852,13 @@ const App = {
                 ${Object.values(clientsWithDebt).map(data => `
                     <div class="card credito-card" data-client-name="${(data.client.name || '').toLowerCase()}" data-client-phone="${(data.client.phone || '').toLowerCase()}">
                         <h3>
-                            <i class="fas fa-user"></i> ${data.client.name}
+                            <i class="fas fa-user"></i> ${Utils.escapeHtml(data.client.name)}
                             <span style="float: right; color: var(--danger); font-size: 1.2rem;">
                                 ${Utils.formatCurrency(data.totalDebt)}
                             </span>
                         </h3>
                         <p style="color: var(--gray); margin: 5px 0 15px;">
-                            <i class="fas fa-phone"></i> ${data.client.phone}
+                            <i class="fas fa-phone"></i> ${Utils.escapeHtml(data.client.phone)}
                         </p>
                         
                         ${data.sales.length > 1 ? `
@@ -946,7 +952,7 @@ const App = {
                     </button>
                 </div>
                 <div class="modal-body">
-                    <p><strong>Cliente:</strong> ${client.name}</p>
+                    <p><strong>Cliente:</strong> ${Utils.escapeHtml(client.name)}</p>
                     <p><strong>Venta:</strong> ${sale.date} ${sale.time}</p>
                     <p><strong>Total:</strong> ${Utils.formatCurrency(sale.total)}</p>
                     <p><strong>Pagado:</strong> ${Utils.formatCurrency(sale.paidAmount)}</p>
@@ -957,7 +963,7 @@ const App = {
                             <label class="form-label">Monto a Pagar</label>
                             <input type="number" step="0.01" min="0.01" 
                                    class="form-input" id="payment-amount" required 
-                                   placeholder="Maximo: ${sale.remainingDebt.toFixed(2)}">
+                                   placeholder="Máximo: ${sale.remainingDebt.toFixed(2)}">
                         </div>
                         <div class="form-group">
                             <label class="form-label">Fecha del Pago</label>
@@ -1017,7 +1023,7 @@ const App = {
                 </div>
                 <div class="modal-body">
                     <div style="background: #E8F5E9; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                        <p style="margin: 0 0 10px 0;"><strong>Cliente:</strong> ${client.name}</p>
+                        <p style="margin: 0 0 10px 0;"><strong>Cliente:</strong> ${Utils.escapeHtml(client.name)}</p>
                         <p style="margin: 0 0 10px 0;"><strong>Créditos activos:</strong> ${clientSales.length}</p>
                         <p style="margin: 0; font-size: 1.2rem; color: #4CAF50; font-weight: bold;">
                             <strong>Deuda total:</strong> ${Utils.formatCurrency(totalDebt)}
@@ -1038,7 +1044,7 @@ const App = {
                             <label class="form-label">Monto a Pagar</label>
                             <input type="number" step="0.01" min="0.01" max="${totalDebt.toFixed(2)}"
                                    class="form-input" id="smart-payment-amount" required 
-                                   placeholder="Maximo: ${totalDebt.toFixed(2)}">
+                                   placeholder="Máximo: ${totalDebt.toFixed(2)}">
                             <div style="display: flex; gap: 5px; margin-top: 10px; flex-wrap: wrap;">
                                 <button type="button" class="btn btn-outline" onclick="document.getElementById('smart-payment-amount').value = ${(totalDebt / 4).toFixed(2)}" style="flex: 1; min-width: 60px; padding: 8px; font-size: 0.85rem;">
                                     25%
@@ -1247,7 +1253,7 @@ const App = {
                             </label>
                             <select class="form-input" id="filter-client" onchange="App.filterPaymentHistory()" style="border: 2px solid var(--border);">
                                 <option value="">Todos los clientes</option>
-                                ${clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+                                ${clients.map(c => `<option value="${c.id}">${Utils.escapeHtml(c.name)}</option>`).join('')}
                             </select>
                         </div>
                         <div class="form-group" style="margin: 0;">
@@ -1474,7 +1480,7 @@ loadConfigPage() {
                                  onclick="ConfigModule.setTheme('${key}'); ConfigModule.saveConfig(); App.updateConfigUI()">
                                 <div class="theme-preview" style="background: linear-gradient(90deg, ${theme.colors.primary}, ${theme.colors.secondary})"></div>
                                 <div class="theme-info">
-                                    <div class="theme-name">${theme.name}</div>
+                                    <div class="theme-name">${Utils.escapeHtml(theme.name)}</div>
                                     <div class="theme-colors">
                                         <div class="theme-color-dot" style="background: ${theme.colors.primary}"></div>
                                         <div class="theme-color-dot" style="background: ${theme.colors.secondary}"></div>
@@ -1564,7 +1570,7 @@ loadConfigPage() {
     <div class="logo-upload-container" onclick="document.getElementById('logo-upload').click()">
         <i class="fas fa-cloud-upload-alt"></i>
         <p>Haz clic para subir un logo</p>
-        <p style="font-size: 0.8rem; color: var(--gray);">PNG, JPG o SVG (recomendado 512x512, maximo 2MB)</p>
+        <p style="font-size: 0.8rem; color: var(--gray);">PNG, JPG o SVG (recomendado 512x512, máximo 2MB)</p>
         <input type="file" id="logo-upload" accept="image/*" style="display: none;" 
                onchange="App.handleLogoUpload(this.files[0])">
         ${ConfigModule.currentConfig.logoImage ? `
@@ -1804,7 +1810,7 @@ handleLogoUpload(file) {
     }
     
     if (file.size > 2 * 1024 * 1024) {
-        Utils.showNotification('La imagen es muy grande. Maximo 2MB', 'error', 5000);
+        Utils.showNotification('La imagen es muy grande. Máximo 2MB', 'error', 5000);
         return;
     }
     
@@ -2213,8 +2219,8 @@ async cleanDuplicatePayments() {
                         .addTo(mapa)
                         .bindPopup(`
                             <div style="min-width: 180px;">
-                                <b>${index + 1}. ${cliente.name}</b><br>
-                                <small>${cliente.address}</small><br>
+                                <b>${index + 1}. ${Utils.escapeHtml(cliente.name)}</b><br>
+                                <small>${Utils.escapeHtml(cliente.address)}</small><br>
                                 <hr style="margin: 5px 0;">
                                 <strong>Pedido:</strong> ${cliente.peso.toFixed(2)} lb • ${cliente.cantidad} pollos<br>
                                 <strong>Estado:</strong> <span class="order-status ${cliente.pedidoStatus}">${OrdersModule.getStatusText(cliente.pedidoStatus)}</span>
@@ -2363,8 +2369,8 @@ async cleanDuplicatePayments() {
                     .addTo(this.mapaDashboard)
                     .bindPopup(`
                         <div style="min-width: 180px;">
-                            <b>${index + 1}. ${cliente.name}</b><br>
-                            <small>${cliente.address}</small><br>
+                            <b>${index + 1}. ${Utils.escapeHtml(cliente.name)}</b><br>
+                            <small>${Utils.escapeHtml(cliente.address)}</small><br>
                             <hr style="margin: 5px 0;">
                             <strong>Pedido:</strong> ${cliente.peso.toFixed(2)} lb • ${cliente.cantidad} pollos<br>
                             <strong>Estado:</strong> <span class="order-status ${cliente.pedidoStatus}">${OrdersModule.getStatusText(cliente.pedidoStatus)}</span>
@@ -3332,7 +3338,7 @@ async cleanDuplicatePayments() {
                 <div class="card">
                     <h3><i class="fas fa-layer-group"></i> Desglose por Tipo de Pollo</h3>
                     <div id="chicken-type-breakdown" style="padding: 15px; background: var(--light); border-radius: 8px;">
-                        <!-- Desglose se agregarx aquí -->
+                        <!-- Desglose se agregará aquí -->
                     </div>
                 </div>
                 
@@ -3754,9 +3760,9 @@ async cleanDuplicatePayments() {
         if (duplicate) {
             const confirmed = await Utils.showDangerConfirm(
                 `Ya existe un cliente con datos similares:<br><br>
-                <strong>Nombre:</strong> ${duplicate.name}<br>
-                <strong>Teléfono:</strong> ${duplicate.phone}<br>
-                <strong>Dirección:</strong> ${duplicate.address}<br><br>
+                <strong>Nombre:</strong> ${Utils.escapeHtml(duplicate.name)}<br>
+                <strong>Teléfono:</strong> ${Utils.escapeHtml(duplicate.phone)}<br>
+                <strong>Dirección:</strong> ${Utils.escapeHtml(duplicate.address)}<br><br>
                 ¿Deseas guardar este cliente de todas formas?`,
                 'Cliente Duplicado Detectado',
                 'Guardar de Todas Formas'
@@ -3860,7 +3866,7 @@ async cleanDuplicatePayments() {
         }
 
         if (!quantity || quantity <= 0) {
-            Utils.showNotification('Ingrese una cantidad vxlida de pollos', 'error', 5000);
+            Utils.showNotification('Ingrese una cantidad válida de pollos', 'error', 5000);
             return;
         }
 
@@ -4124,7 +4130,7 @@ async cleanDuplicatePayments() {
         }
 
         if (!quantity || quantity <= 0) {
-            Utils.showNotification('Ingrese una cantidad vxlida de pollos', 'error', 5000);
+            Utils.showNotification('Ingrese una cantidad válida de pollos', 'error', 5000);
             return;
         }
 
@@ -4306,7 +4312,7 @@ async cleanDuplicatePayments() {
         console.log('💰 Notificando nueva venta:', sale.id);
         this.showLocalNotification(
             'Nueva Venta Registrada',
-            `${client.name}: ${Utils.formatCurrency(sale.total)} - ${sale.weight}lb`
+            `${Utils.escapeHtml(client.name)}: ${Utils.formatCurrency(sale.total)} - ${sale.weight}lb`
         );
     },
 
@@ -4314,7 +4320,7 @@ async cleanDuplicatePayments() {
         console.log('📋 Notificando nuevo pedido:', order.id);
         this.showLocalNotification(
             'Nuevo Pedido',
-            `${client.name}: ${order.weight}lb - ${order.quantity} pollos`
+            `${Utils.escapeHtml(client.name)}: ${order.weight}lb - ${order.quantity} pollos`
         );
     },
 
@@ -4908,7 +4914,7 @@ async cleanDuplicatePayments() {
                         <div class="form-group">
                             <label class="form-label">Descripción</label>
                             <input type="text" class="form-input" id="edit-expense-description" 
-                                   value="${expense.description}" required>
+                                   value="${Utils.escapeHtml(expense.description)}" required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Monto</label>
@@ -5595,8 +5601,8 @@ async cleanDuplicatePayments() {
         
         // Mostrar notificación
         const mensaje = devMode ? 
-            'Modo Desarrollo activado. Recarga para ver cambios instantxneos.' : 
-            'Modo Producción activado. App funcionarx 100% offline.';
+            'Modo Desarrollo activado. Recarga para ver cambios instantáneos.' : 
+            'Modo Producción activado. App funcionará 100% offline.';
         
         Utils.showNotification(mensaje, devMode ? 'warning' : 'success', 5000);
         
@@ -5748,7 +5754,7 @@ async cleanDuplicatePayments() {
         
         // Si no hay acción o es 'open', solo abrir la app
         if (!action || action === 'open' || action === 'dismiss') {
-            console.log('ℹ️ Acción bxsica, no requiere procesamiento');
+            console.log('ℹ️ Acción básica, no requiere procesamiento');
             return;
         }
         
@@ -5948,7 +5954,7 @@ App.startChainWeighing = function() {
                            style="margin-bottom:6px;">
                     <select class="form-input" id="chain-client-select" size="4" style="height:auto;" onchange="App._onChainClientChange()">
                         <option value="">-- Seleccionar cliente --</option>
-                        ${activeClients.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+                        ${activeClients.map(c => `<option value="${c.id}">${Utils.escapeHtml(c.name)}</option>`).join('')}
                     </select>
                     <div id="chain-gps-indicator" style="display:block;margin-top:6px;font-size:0.8rem;color:var(--gray);padding:6px 8px;background:var(--light);border-radius:6px;">
                         <i class="fas fa-satellite-dish" style="color:var(--warning);"></i> Iniciando GPS...
@@ -6672,7 +6678,7 @@ App.filterChainClients = function(query) {
     const clients = ClientsModule.clients.filter(c => c.isActive !== false);
     select.innerHTML = '<option value="">-- Seleccionar --</option>' +
         clients.filter(c => !q || c.name.toLowerCase().includes(q) || (c.phone && c.phone.includes(q)))
-               .map(c => `<option value="${c.id}">${c.name}</option>`)
+               .map(c => `<option value="${c.id}">${Utils.escapeHtml(c.name)}</option>`)
                .join('');
     // Si solo hay un resultado, seleccionarlo automaticamente
     if (select.options.length === 2) select.selectedIndex = 1;
@@ -6774,7 +6780,7 @@ App.startGeoChain = function() {
                     <select class="form-input" id="geo-client-override" onchange="App._geoChainOverrideClient(this.value)" style="font-size:0.9rem;">
                         <option value="">-- Auto por GPS --</option>
                         ${ClientsModule.clients.filter(c => c.isActive !== false).map(c =>
-                            `<option value="${c.id}">${c.name}</option>`
+                            `<option value="${c.id}">${Utils.escapeHtml(c.name)}</option>`
                         ).join('')}
                     </select>
                 </div>

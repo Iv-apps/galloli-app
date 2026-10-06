@@ -1,11 +1,11 @@
-// Sistema de Backup Automxtico Diario - USA EL MISMO MÉTODO QUE EL BACKUP MANUAL
+// Sistema de Backup Automático Diario - USA EL MISMO MÉTODO QUE EL BACKUP MANUAL
 const AutoBackup = {
     checkInterval: null,
     lastDataHash: null,
     
     // Inicializar el sistema
     async init() {
-        console.log('💾 Inicializando sistema de backup automxtico...');
+        console.log('💾 Inicializando sistema de backup automático...');
         
         // Cargar el hash de los últimos datos desde IndexedDB
         this.lastDataHash = await this.getFromDB('lastBackupDataHash');
@@ -18,10 +18,10 @@ const AutoBackup = {
         // Verificar inmediatamente al iniciar
         setTimeout(() => this.checkBackupTime(), 5000);
         
-        console.log('✅ Sistema de backup automxtico inicializado');
+        console.log('✅ Sistema de backup automático inicializado');
     },
     
-    // Guardar en IndexedDB (mxs seguro y persistente)
+    // Guardar en IndexedDB (más seguro y persistente)
     async saveToDB(key, value) {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open('GallOliSecure', 1);
@@ -128,11 +128,11 @@ const AutoBackup = {
                 return true;
             }
             
-            // Guardar que este dispositivo estx activo
+            // Guardar que este dispositivo está activo
             await this.saveToDB('lastActiveTime', Date.now());
             
-            // Por simplicidad: el dispositivo con el device_id mxs pequeño (mxs antiguo) es el líder
-            // En una implementación mxs robusta, se consultaría al servidor
+            // Por simplicidad: el dispositivo con el device_id más pequeño (más antiguo) es el líder
+            // En una implementación más robusta, se consultaría al servidor
             const storedLeader = await this.getFromDB('backupLeader');
             
             if (!storedLeader) {
@@ -201,10 +201,10 @@ const AutoBackup = {
         return hash.toString();
     },
     
-    // Crear backup automxtico - USA EXACTAMENTE EL MISMO MÉTODO QUE EL BACKUP MANUAL
+    // Crear backup automático - USA EXACTAMENTE EL MISMO MÉTODO QUE EL BACKUP MANUAL
     async createAutomaticBackup() {
         try {
-            console.log('📦 Creando backup automxtico usando el método manual...');
+            console.log('📦 Creando backup automático usando el método manual...');
             
             // Verificar que BackupModule tenga credenciales
             if (!BackupModule.telegramBotToken || !BackupModule.telegramChatId) {
@@ -227,7 +227,7 @@ const AutoBackup = {
             const result = await BackupModule.sendToTelegram(backup);
             
             if (result.ok) {
-                console.log('✅ Backup automxtico enviado correctamente');
+                console.log('✅ Backup automático enviado correctamente');
                 
                 // Guardar fecha del último backup
                 const today = new Date().toISOString().split('T')[0];
@@ -239,7 +239,7 @@ const AutoBackup = {
             return false;
             
         } catch (error) {
-            console.error('❌ Error creando backup automxtico:', error);
+            console.error('❌ Error creando backup automático:', error);
             
             // Notificar error
             if (typeof PushNotifications !== 'undefined') {
@@ -250,7 +250,7 @@ const AutoBackup = {
         }
     },
     
-    // Guardar credenciales de Telegram permanentemente en IndexedDB (mxs seguro)
+    // Guardar credenciales de Telegram permanentemente en IndexedDB (más seguro)
     async saveCredentials(botToken, chatId) {
         // Encriptar las credenciales antes de guardar
         const encrypted = {
@@ -331,7 +331,7 @@ const AutoBackup = {
     
     // Forzar backup manual (para pruebas) - USA EL MISMO MÉTODO
     async forceBackup() {
-        console.log('🔧 Forzando backup manual (mismo método que el automxtico)...');
+        console.log('🔧 Forzando backup manual (mismo método que el automático)...');
         return await this.createAutomaticBackup();
     }
 };

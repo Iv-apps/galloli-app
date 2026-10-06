@@ -1,5 +1,5 @@
 // Service Worker con versionado automatico
-const APP_VERSION = '7.20.45'; // fix: deleteOrder/deleteExpense notifican action=delete al servidor; handleRemoteDeletion orders/expenses
+const APP_VERSION = '7.20.46'; // fix: auditoria APK/TWA - BOM, XSS escapeHtml, rutas, permisos, SW sin cachear API
 const CACHE_NAME = `galloli-v${APP_VERSION}`;
 const DATA_CACHE_NAME = `galloli-data-v${APP_VERSION}`;
 
@@ -140,29 +140,33 @@ self.addEventListener('activate', (event) => {
     
     event.waitUntil(
         (async () => {
-            // Limpiar caches viejos PRIMERO
+            // Limpiar caches viejos PRIMERO (si habia caches viejos, es una actualizacion real)
             const cacheKeys = await caches.keys();
+            const cachesViejos = cacheKeys.filter(
+                (cacheName) => cacheName !== CACHE_NAME && cacheName !== DATA_CACHE_NAME
+            );
             await Promise.all(
-                cacheKeys.map(async (cacheName) => {
-                    // Eliminar caches que no sean de la versión actual
-                    if (cacheName !== CACHE_NAME && cacheName !== DATA_CACHE_NAME) {
-                        console.log('[Service Worker] Eliminando cache viejo:', cacheName);
-                        await caches.delete(cacheName);
-                    }
+                cachesViejos.map(async (cacheName) => {
+                    console.log('[Service Worker] Eliminando cache viejo:', cacheName);
+                    await caches.delete(cacheName);
                 })
             );
             
             // Reclamar clientes inmediatamente - FORZAR CONTROL
             await self.clients.claim();
             
-            // Recargar todas las páginas abiertas
-            const clients = await self.clients.matchAll({ type: 'window' });
-            clients.forEach(client => {
-                client.postMessage({
-                    type: 'SW_UPDATED',
-                    version: APP_VERSION
+            // Avisar solo si de verdad habia una version anterior instalada:
+            // en la primera instalacion no hay nada que actualizar para el usuario.
+            if (cachesViejos.length > 0) {
+                const clients = await self.clients.matchAll({ type: 'window' });
+                clients.forEach(client => {
+                    client.postMessage({
+                        type: 'SW_UPDATED',
+                        version: APP_VERSION,
+                        isUpdate: true
+                    });
                 });
-            });
+            }
             
             console.log('[Service Worker] Activación completada - Versión', APP_VERSION);
             
@@ -206,7 +210,11 @@ self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
     
     const url = new URL(event.request.url);
-    
+
+    // Nunca cachear la API ni navegaciones con parametros de autenticacion
+    if (url.pathname.startsWith('/api/')) return;
+    if (url.searchParams.has('reset') || url.searchParams.has('action')) return;
+
     // Ignorar solicitudes a APIs externas (excepto CDNs conocidas)
     if (url.hostname !== self.location.hostname && 
         !url.hostname.includes('cdnjs.cloudflare.com') &&

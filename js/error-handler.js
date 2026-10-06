@@ -1,4 +1,4 @@
-﻿// Sistema de manejo de errores global
+// Sistema de manejo de errores global
 (function() {
     'use strict';
     

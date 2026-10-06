@@ -7,7 +7,7 @@
         super_admin: '*',
         admin: [
             'sales.create', 'sales.edit', 'sales.delete',
-            'clients.crud', 'products.crud', 'prices.edit', 'expenses.crud',
+            'clients.crud', 'products.crud', 'prices.edit', 'expenses.crud', 'expenses.delete',
             'merma.create', 'routes.assign', 'routes.execute', 'orders.manage',
             'reports.view', 'users.manage', 'invitations.create',
             'auto-sale.engine', 'sri.facturar', 'config.business'
@@ -69,10 +69,11 @@
         });
     }
 
+    // Exponer ANTES del listener para que applyDom esté disponible dentro del callback
+    window.Perm = { can: can, require: require, applyDom: applyDom, role: role };
+
     // Aplicar al cargar el DOM
     document.addEventListener('DOMContentLoaded', function () {
-        Perm.applyDom(document);
+        window.Perm.applyDom(document);
     });
-
-    window.Perm = { can: can, require: require, applyDom: applyDom, role: role };
 })();

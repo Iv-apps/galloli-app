@@ -117,7 +117,7 @@ class SyncEngine {
                 console.log('🔌 WebSocket desconectado - reintentando...');
                 this.ws = null;
                 
-                // Reconectar con backoff exponencial (mxximo 30 segundos)
+                // Reconectar con backoff exponencial (máximo 30 segundos)
                 if (this.wsReconnectAttempts < this.wsMaxReconnectAttempts) {
                     const delayMs = Math.min(1000 * Math.pow(2, this.wsReconnectAttempts), 30000);
                     this.wsReconnectAttempts++;
@@ -281,7 +281,7 @@ class SyncEngine {
                 itemsMap.set(id, item);
             });
             
-            // Agregar/sobrescribir con items locales si son mxs recientes
+            // Agregar/sobrescribir con items locales si son más recientes
             localItems.forEach(item => {
                 const id = this.getItemId(item, dataType);
                 const existing = itemsMap.get(id);
@@ -429,9 +429,9 @@ class SyncEngine {
                 break;
         }
         
-        // SIEMPRE recargar la pxgina actual para reflejar cambios
+        // SIEMPRE recargar la página actual para reflejar cambios
         if (window.App?.currentPage) {
-            console.log('🔄 Recargando pxgina actual:', window.App.currentPage);
+            console.log('🔄 Recargando página actual:', window.App.currentPage);
             window.App.loadPage(window.App.currentPage);
         }
     }
@@ -463,7 +463,7 @@ class SyncEngine {
             
             // 6. Limpiar duplicados del servidor (solo si hubo duplicados)
             const totalDuplicates = Object.values(mergedData).reduce((sum, items) => {
-                // Contar cuxntos duplicados había en remoteData vs mergedData
+                // Contar cuántos duplicados había en remoteData vs mergedData
                 const remoteCount = (remoteData[Object.keys(mergedData).find(k => mergedData[k] === items)] || []).length;
                 const mergedCount = items.length;
                 return sum + (remoteCount - mergedCount);
@@ -521,7 +521,7 @@ class SyncEngine {
             if (duplicates.length > 0) {
                 console.warn(`⚠️ ${type}: ${duplicates.length} IDs duplicados en servidor - limpiando...`);
                 
-                // Para cada ID duplicado, mantener solo el mxs reciente
+                // Para cada ID duplicado, mantener solo el más reciente
                 duplicates.forEach(([id, items]) => {
                     const newest = items.reduce((prev, current) => {
                         const prevTime = this.getItemTimestamp(prev);
@@ -529,11 +529,11 @@ class SyncEngine {
                         return currentTime > prevTime ? current : prev;
                     });
                     
-                    console.log(`  🧹 ID ${id}: ${items.length} duplicados → manteniendo el mxs reciente`);
+                    console.log(`  🧹 ID ${id}: ${items.length} duplicados → manteniendo el más reciente`);
                 });
             }
             
-            // Agregar items remotos (solo el mxs reciente si hay duplicados)
+            // Agregar items remotos (solo el más reciente si hay duplicados)
             remoteIds.forEach((items, id) => {
                 if (items.length === 1) {
                     itemsMap.set(id, {
@@ -541,7 +541,7 @@ class SyncEngine {
                         _source: 'remote'
                     });
                 } else {
-                    // Mantener el mxs reciente
+                    // Mantener el más reciente
                     const newest = items.reduce((prev, current) => {
                         const prevTime = this.getItemTimestamp(prev);
                         const currentTime = this.getItemTimestamp(current);
@@ -572,13 +572,13 @@ class SyncEngine {
                     const remoteTime = this.getItemTimestamp(existing);
                     
                     if (localTime > remoteTime) {
-                        // Local es mxs reciente
+                        // Local es más reciente
                         itemsMap.set(id, {
                             ...item,
                             _source: 'local_newer'
                         });
                     }
-                    // Si remote es mxs reciente o igual, mantener el que ya estx
+                    // Si remote es más reciente o igual, mantener el que ya está
                 }
             });
             
@@ -640,7 +640,7 @@ class SyncEngine {
             const remoteItems = remoteData[dataType] || [];
             const remoteIds = new Set(remoteItems.map(item => this.getItemId(item, dataType)));
             
-            // Encontrar items que no estxn en el servidor
+            // Encontrar items que no están en el servidor
             const missingItems = items.filter(item => {
                 const id = this.getItemId(item, dataType);
                 return !remoteIds.has(id);
@@ -663,7 +663,7 @@ class SyncEngine {
         }
         
         if (changes.length === 0) {
-            console.log('✅ Todos los datos ya estxn sincronizados');
+            console.log('✅ Todos los datos ya están sincronizados');
             return;
         }
         
@@ -915,9 +915,9 @@ class SyncEngine {
                 ConfigModule.applyConfig();
             }
             
-            // PaymentHistoryModule ya no necesita loadPayments - se construye dinxmicamente
+            // PaymentHistoryModule ya no necesita loadPayments - se construye dinámicamente
             
-            // Recargar pxgina actual
+            // Recargar página actual
             if (window.App?.currentPage) {
                 window.App.loadPage(window.App.currentPage);
             }
@@ -1020,7 +1020,7 @@ class SyncEngine {
         }
         
         // PaymentHistoryModule ya no tiene savePayments - los datos vienen de sale.paymentHistory
-        // que se sincronizan automxticamente con SalesModule.saveSales
+        // que se sincronizan automáticamente con SalesModule.saveSales
         
         // Diezmos - Configuración
         if (window.DiezmosModule?.saveConfig) {
@@ -1162,7 +1162,7 @@ class SyncEngine {
             const remoteItems = (result.data || []).map(item => item.data);
             const remoteIds = new Set(remoteItems.map(item => this.getItemId(item, dataType)));
             
-            // Encontrar items que no estxn en el servidor o son mxs recientes
+            // Encontrar items que no están en el servidor o son más recientes
             const itemsToUpload = localData.filter(item => {
                 const id = this.getItemId(item, dataType);
                 
@@ -1175,14 +1175,14 @@ class SyncEngine {
                 if (remoteItem) {
                     const localTime = this.getItemTimestamp(item);
                     const remoteTime = this.getItemTimestamp(remoteItem);
-                    return localTime > remoteTime; // Local es mxs reciente
+                    return localTime > remoteTime; // Local es más reciente
                 }
                 
                 return false;
             });
             
             if (itemsToUpload.length === 0) {
-                console.log(`✅ ${dataType} ya estx sincronizado`);
+                console.log(`✅ ${dataType} ya está sincronizado`);
                 return;
             }
             

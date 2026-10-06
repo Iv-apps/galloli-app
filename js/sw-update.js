@@ -1,7 +1,8 @@
 // Listener para actualizaciones del Service Worker
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', async (event) => {
-        if (event.data && event.data.type === 'SW_UPDATED') {
+        // isUpdate solo llega cuando reemplazamos un cache anterior (no en la primera instalacion)
+        if (event.data && event.data.type === 'SW_UPDATED' && event.data.isUpdate) {
             console.log('🔄 Nueva versión detectada:', event.data.version);
             
             // Mostrar notificación al usuario

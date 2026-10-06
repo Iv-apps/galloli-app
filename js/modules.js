@@ -128,10 +128,10 @@ const ClientsModule = {
         
         // Crear enlace de telefono
         const phoneLink = client.phone ? 
-            `<a href="tel:${client.phone}" class="client-phone">
-                <i class="fas fa-phone"></i> ${client.phone}
+            `<a href="tel:${Utils.escapeHtml(client.phone)}" class="client-phone">
+                <i class="fas fa-phone"></i> ${Utils.escapeHtml(client.phone)}
             </a>` : 
-            `<span class="client-phone"><i class="fas fa-phone"></i> ${client.phone}</span>`;
+            `<span class="client-phone"><i class="fas fa-phone"></i> ${Utils.escapeHtml(client.phone)}</span>`;
         
         // Crear enlace de ubicacion si tiene coordenadas
         let locationLink = '';
@@ -140,17 +140,17 @@ const ClientsModule = {
             locationLink = `
                 <p class="client-address">
                     <a href="${mapsUrl}" target="_blank" class="client-location-link">
-                        <i class="fas fa-map-marker-alt"></i> ${client.address}
+                        <i class="fas fa-map-marker-alt"></i> ${Utils.escapeHtml(client.address)}
                     </a>
                 </p>
             `;
         } else {
-            locationLink = `<p class="client-address"><i class="fas fa-map-marker-alt"></i> ${client.address}</p>`;
+            locationLink = `<p class="client-address"><i class="fas fa-map-marker-alt"></i> ${Utils.escapeHtml(client.address)}</p>`;
         }
         
         li.innerHTML = `
             <div class="client-info">
-                <h3 class="client-name"><i class="fas fa-user"></i> ${client.name}</h3>
+                <h3 class="client-name"><i class="fas fa-user"></i> ${Utils.escapeHtml(client.name)}</h3>
                 <p>${phoneLink}</p>
                 ${locationLink}
                 ${client.coordinates ? 
@@ -229,13 +229,13 @@ const ClientsModule = {
                 <div class="modal-body">
                     <div style="text-align: center; margin-bottom: 20px;">
                         <i class="fas fa-archive" style="font-size: 3rem; color: var(--warning); margin-bottom: 15px;"></i>
-                        <h3 style="margin-bottom: 10px;">Archivar "${client.name}"?</h3>
+                        <h3 style="margin-bottom: 10px;">Archivar "${Utils.escapeHtml(client.name)}"?</h3>
                         <p style="color: var(--gray); margin-bottom: 20px;">El cliente se ocultara pero mantendra su historial</p>
                     </div>
                     
                     <div style="background: var(--light); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                        <p style="margin: 5px 0;"><strong><i class="fas fa-user"></i> Cliente:</strong> ${client.name}</p>
-                        <p style="margin: 5px 0;"><strong><i class="fas fa-phone"></i> Telefono:</strong> ${client.phone}</p>
+                        <p style="margin: 5px 0;"><strong><i class="fas fa-user"></i> Cliente:</strong> ${Utils.escapeHtml(client.name)}</p>
+                        <p style="margin: 5px 0;"><strong><i class="fas fa-phone"></i> Telefono:</strong> ${Utils.escapeHtml(client.phone)}</p>
                         ${hasData ? `
                             <p style="margin: 5px 0;"><strong><i class="fas fa-receipt"></i> Ventas:</strong> ${associatedData.totalSales} registros</p>
                             <p style="margin: 5px 0;"><strong><i class="fas fa-clipboard-list"></i> Pedidos:</strong> ${associatedData.totalOrders} registros</p>
@@ -325,9 +325,9 @@ const ClientsModule = {
             
             li.innerHTML = `
                 <div class="client-info">
-                    <h3><i class="fas fa-archive"></i> ${client.name} <span style="color: var(--warning); font-size: 0.8rem;">(Archivado)</span></h3>
-                    <p><i class="fas fa-phone"></i> ${client.phone}</p>
-                    <p class="client-location"><i class="fas fa-map-marker-alt"></i> ${client.address}</p>
+                    <h3><i class="fas fa-archive"></i> ${Utils.escapeHtml(client.name)} <span style="color: var(--warning); font-size: 0.8rem;">(Archivado)</span></h3>
+                    <p><i class="fas fa-phone"></i> ${Utils.escapeHtml(client.phone)}</p>
+                    <p class="client-location"><i class="fas fa-map-marker-alt"></i> ${Utils.escapeHtml(client.address)}</p>
                     <p class="client-location"><i class="fas fa-calendar"></i> Archivado: ${client.archivedDate || 'Fecha no disponible'}</p>
                     <p class="client-location"><i class="fas fa-shopping-cart"></i> ${client.totalSales} ventas | ${client.totalOrders} pedidos</p>
                 </div>
@@ -910,7 +910,7 @@ const OrdersModule = {
                         <i class="fas fa-balance-scale"></i> ${order.averageWeight} lb/pollo x 
                         $${(order.price || 0).toFixed(2)}/lb
                     </p>
-                    ${order.notes ? `<p class="order-details"><i class="fas fa-sticky-note"></i> ${order.notes}</p>` : ''}
+                    ${order.notes ? `<p class="order-details"><i class="fas fa-sticky-note"></i> ${Utils.escapeHtml(order.notes)}</p>` : ''}
                     ${order.deliveryDate ? 
                         `<p class="order-delivery"><i class="fas fa-calendar-alt"></i> Entrega: ${order.deliveryDate} ${order.deliveryTime || ''}</p>` : 
                         `<p class="order-details"><i class="fas fa-clock"></i> Creado: ${order.createdDate} ${order.createdTime}</p>`
@@ -964,7 +964,7 @@ const OrdersModule = {
                     <form id="delivery-form">
                         <div class="form-group">
                             <label class="form-label" for="delivery-client-name">Cliente</label>
-                            <input type="text" id="delivery-client-name" name="delivery-client-name" class="form-input" value="${client.name}" readonly>
+                            <input type="text" id="delivery-client-name" name="delivery-client-name" class="form-input" value="${Utils.escapeHtml(client.name)}" readonly>
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="delivery-weight">Peso del Pedido (lb)</label>
@@ -1097,9 +1097,9 @@ const OrdersModule = {
         const details = `
             <div class="order-details-modal">
                 <h3><i class="fas fa-clipboard-list"></i> Detalles del Pedido #${orderId}</h3>
-                <p><strong>Cliente:</strong> ${client.name}</p>
-                <p><strong>Telefono:</strong> ${client.phone}</p>
-                <p><strong>Direccion:</strong> ${client.address}</p>
+                <p><strong>Cliente:</strong> ${Utils.escapeHtml(client.name)}</p>
+                <p><strong>Telefono:</strong> ${Utils.escapeHtml(client.phone)}</p>
+                <p><strong>Direccion:</strong> ${Utils.escapeHtml(client.address)}</p>
                 <p><strong>Ubicacion:</strong> ${client.location || 'No especificada'}</p>
                 <hr>
                 <p><strong>Peso Total:</strong> ${order.weight.toFixed(2)} lb</p>
@@ -1110,7 +1110,7 @@ const OrdersModule = {
                 <p><strong>Estado:</strong> <span class="order-status ${order.status}">${this.getStatusText(order.status)}</span></p>
                 <p><strong>Fecha de creacion:</strong> ${order.createdDate} ${order.createdTime}</p>
                 ${order.deliveryDate ? `<p><strong>Fecha de entrega:</strong> ${order.deliveryDate} ${order.deliveryTime || ''}</p>` : ''}
-                ${order.notes ? `<p><strong>Notas:</strong> ${order.notes}</p>` : ''}
+                ${order.notes ? `<p><strong>Notas:</strong> ${Utils.escapeHtml(order.notes)}</p>` : ''}
                 ${order.actualWeight ? `<p><strong>Peso real entregado:</strong> ${order.actualWeight.toFixed(2)} lb</p>` : ''}
                 ${order.actualQuantity ? `<p><strong>Cantidad real entregada:</strong> ${order.actualQuantity} pollos</p>` : ''}
                 ${order.deliveryNotes ? `<p><strong>Notas de entrega:</strong> ${order.deliveryNotes}</p>` : ''}
@@ -1404,7 +1404,7 @@ const SalesModule = {
                             <label class="form-label" for="edit-sale-client">Cliente</label>
                             <select class="form-input" id="edit-sale-client" required>
                                 ${ClientsModule.clients.map(c => 
-                                    `<option value="${c.id}" ${c.id === sale.clientId ? 'selected' : ''}>${c.name} - ${c.phone}</option>`
+                                    `<option value="${c.id}" ${c.id === sale.clientId ? 'selected' : ''}>${Utils.escapeHtml(c.name)} - ${Utils.escapeHtml(c.phone)}</option>`
                                 ).join('')}
                             </select>
                         </div>
@@ -1810,7 +1810,7 @@ const SalesModule = {
         if (!pendingDeletions.includes(saleId)) {
             pendingDeletions.push(saleId);
             localStorage.setItem('pendingSalesDeletions', JSON.stringify(pendingDeletions));
-            console.log(`?? Eliminacion pendiente guardada: ${saleId}`);
+            console.log(`🗑️ Eliminacion pendiente guardada: ${saleId}`);
         }
     },
 
@@ -1824,20 +1824,20 @@ const SalesModule = {
             const pendingDeletions = JSON.parse(localStorage.getItem('pendingSalesDeletions') || '[]');
             
             if (pendingDeletions.length > 0) {
-                console.log(`?? Sincronizando ${pendingDeletions.length} eliminaciones pendientes...`);
+                console.log(`🔁 Sincronizando ${pendingDeletions.length} eliminaciones pendientes...`);
                 
                 for (const saleId of pendingDeletions) {
                     try {
                         await window.SyncEngine.notifyChange('sales', saleId, 'delete');
-                        console.log(`? Eliminacion sincronizada: ${saleId}`);
+                        console.log(`✅ Eliminacion sincronizada: ${saleId}`);
                     } catch (error) {
-                        console.error(`? Error sincronizando eliminacion ${saleId}:`, error);
+                        console.error(`❌ Error sincronizando eliminacion ${saleId}:`, error);
                     }
                 }
                 
                 // Limpiar eliminaciones pendientes
                 localStorage.removeItem('pendingSalesDeletions');
-                console.log('? Todas las eliminaciones pendientes sincronizadas');
+                console.log('✅ Todas las eliminaciones pendientes sincronizadas');
             }
         }
     }
@@ -2266,7 +2266,7 @@ const StatsModule = {
             li.className = 'client-item';
             li.innerHTML = `
                 <div class="client-info">
-                    <h3><i class="fas fa-user"></i> ${item.client.name}</h3>
+                    <h3><i class="fas fa-user"></i> ${Utils.escapeHtml(item.client.name)}</h3>
                     <p class="client-location">
                         <i class="fas fa-shopping-cart"></i> ${item.sales} ventas | 
                         <i class="fas fa-egg"></i> ${item.quantity} pollos
@@ -2531,7 +2531,7 @@ const AccountingModule = {
                 <div style="display:flex; flex-direction:column; gap:6px;">
                     ${expenses.map(exp => `
                         <div style="display:flex; justify-content:space-between; padding:8px 10px; background:var(--light); border-radius:6px; font-size:0.9rem;">
-                            <span>${exp.description} <span style="color:var(--gray); font-size:0.8rem;">(${exp.category || 'otros'})</span></span>
+                            <span>${Utils.escapeHtml(exp.description)} <span style="color:var(--gray); font-size:0.8rem;">(${exp.category || 'otros'})</span></span>
                             <strong style="color:#dc3545;">-${Utils.formatCurrency(exp.amount)}</strong>
                         </div>
                     `).join('')}
@@ -2587,7 +2587,7 @@ const AccountingModule = {
             li.className = 'sale-item';
             li.innerHTML = `
                 <div class="sale-info">
-                    <h3><i class="fas fa-receipt"></i> ${expense.description}</h3>
+                    <h3><i class="fas fa-receipt"></i> ${Utils.escapeHtml(expense.description)}</h3>
                     <p class="sale-details"><i class="fas fa-tag"></i> ${expense.category} - ${expense.time}</p>
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 5px; align-items: flex-end;">
@@ -2700,7 +2700,7 @@ const DiezmosModule = {
         
         if (registrosCreados > 0) {
             await this.saveRecords();
-            console.log(`? Se calcularon automaticamente ${registrosCreados} registros de diezmos pendientes`);
+            console.log(`✅ Se calcularon automaticamente ${registrosCreados} registros de diezmos pendientes`);
         }
     },
 
@@ -2897,7 +2897,7 @@ const DiezmosModule = {
         
         if (registrosCreados > 0 || registrosActualizados > 0) {
             await this.saveRecords();
-            const mensaje = `? Recalculo completo: ${registrosCreados} nuevos registros, ${registrosActualizados} actualizados`;
+            const mensaje = `Recalculo completo: ${registrosCreados} nuevos registros, ${registrosActualizados} actualizados`;
             Utils.showNotification(mensaje, 'success', 4000);
             return { creados: registrosCreados, actualizados: registrosActualizados };
         }
@@ -3158,7 +3158,7 @@ const PaymentHistoryModule = {
     // YA NO se necesitan estas funciones - los datos vienen de sale.paymentHistory
     async init() {
         // No hacer nada - los datos se construyen dinamicamente
-        console.log('? PaymentHistoryModule inicializado (modo dinamico desde ventas)');
+        console.log('✅ PaymentHistoryModule inicializado (modo dinamico desde ventas)');
     },
 
     exportPayments(clientId = null) {
@@ -3263,7 +3263,7 @@ const RutasModule = {
             // Mostrar marcadores para cada cliente
             let contador = 0;
             Object.keys(pedidosPorCliente).forEach(clientId => {
-                const cliente = ClientsModule.getClient(clientId);
+                const cliente = ClientsModule.getClientById(clientId);
                 if (cliente && cliente.coordinates && cliente.coordinates.lat && cliente.coordinates.lng) {
                     const lat = parseFloat(cliente.coordinates.lat);
                     const lng = parseFloat(cliente.coordinates.lng);
@@ -3278,7 +3278,7 @@ const RutasModule = {
 
                         marcador.bindPopup(`
                             <div style="font-size: 12px;">
-                                <strong>${cliente.name}</strong><br>
+                                <strong>${Utils.escapeHtml(cliente.name)}</strong><br>
                                 Pedidos: ${pedidosPorCliente[clientId].length}<br>
                                 Total: ${Utils.formatCurrency(
                                     pedidosPorCliente[clientId].reduce((sum, p) => sum + (p.total || 0), 0)
@@ -3309,6 +3309,111 @@ const RutasModule = {
     actualizarRutaPorCambioPedido(orderId, status) {
         if (this.mapaRutaInicializado && this.mapaRuta) {
             this.actualizarMapa();
+        }
+    },
+
+    // Generar y dibujar sobre el mapa la ruta optima de pedidos pendientes
+    generarRutaOptima() {
+        try {
+            if (!this.mapaRutaInicializado || !this.mapaRuta) {
+                this.inicializarMapa();
+                if (!this.mapaRuta) {
+                    Utils.showNotification('No se pudo inicializar el mapa de rutas', 'error', 4000);
+                    return;
+                }
+            }
+
+            const pedidosPendientes = OrdersModule.getPendingOrders() || [];
+            const clientes = [];
+
+            pedidosPendientes.forEach(pedido => {
+                const cliente = ClientsModule.getClientById(pedido.clientId);
+                if (!cliente || !cliente.coordinates) return;
+                if (clientes.some(c => c.id === cliente.id)) return;
+
+                const lat = parseFloat(cliente.coordinates.lat);
+                const lng = parseFloat(cliente.coordinates.lng);
+                if (isNaN(lat) || isNaN(lng)) return;
+
+                clientes.push({ id: cliente.id, name: cliente.name, coordinates: { lat, lng } });
+            });
+
+            if (clientes.length === 0) {
+                Utils.showNotification('No hay pedidos pendientes con ubicacion GPS', 'warning', 4000);
+                return;
+            }
+
+            const ordenados = this.optimizarRuta(clientes);
+
+            // Quitar marcadores/linea anteriores sin avisar
+            this.limpiarMapa(true);
+
+            const puntos = [];
+            ordenados.forEach((cliente, indice) => {
+                const lat = cliente.coordinates.lat;
+                const lng = cliente.coordinates.lng;
+                puntos.push([lat, lng]);
+
+                const marcador = OfflineMaps.createMarker(lat, lng, {
+                    color: 'var(--secondary)',
+                    size: 32,
+                    label: String(indice + 1)
+                });
+
+                marcador.bindPopup(`
+                    <div style="font-size: 12px;">
+                        <strong>${Utils.escapeHtml(cliente.name)}</strong><br>
+                        Parada ${indice + 1} de ${ordenados.length}
+                    </div>
+                `);
+
+                marcador.addTo(this.mapaRuta);
+                this.marcadoresRuta.push(marcador);
+            });
+
+            if (puntos.length > 1) {
+                this.rutaActual = L.polyline(puntos, {
+                    color: '#2196F3',
+                    weight: 4,
+                    opacity: 0.8,
+                    dashArray: '8,6'
+                }).addTo(this.mapaRuta);
+            }
+
+            if (puntos.length === 1) {
+                this.mapaRuta.setView(puntos[0], 15);
+            } else {
+                this.mapaRuta.fitBounds(puntos, { padding: [30, 30] });
+            }
+
+            Utils.showNotification(`Ruta optimizada: ${ordenados.length} paradas`, 'success', 4000);
+            console.log(`✅ Ruta optima generada con ${ordenados.length} paradas`);
+        } catch (error) {
+            console.error('❌ Error generando ruta optima:', error);
+            Utils.showNotification('No se pudo generar la ruta optima', 'error', 4000);
+        }
+    },
+
+    // Limpiar marcadores y linea de ruta del mapa
+    limpiarMapa(silencioso) {
+        try {
+            this.marcadoresRuta.forEach(marcador => {
+                if (marcador && this.mapaRuta) {
+                    this.mapaRuta.removeLayer(marcador);
+                }
+            });
+            this.marcadoresRuta = [];
+
+            if (this.rutaActual && this.mapaRuta) {
+                this.mapaRuta.removeLayer(this.rutaActual);
+            }
+            this.rutaActual = null;
+
+            if (!silencioso) {
+                Utils.showNotification('Mapa de ruta limpiado', 'info', 2500);
+            }
+        } catch (error) {
+            console.error('❌ Error limpiando el mapa de rutas:', error);
         }
     },
 
@@ -3580,14 +3685,14 @@ const BackupModule = {
                 if (credentials.botToken && credentials.chatId) {
                     this.telegramBotToken = credentials.botToken;
                     this.telegramChatId = credentials.chatId;
-                    console.log('? Credenciales cargadas desde IndexedDB');
+                    console.log('✅ Credenciales cargadas desde IndexedDB');
                 }
             } catch (error) {
                 console.error('Error cargando desde IndexedDB:', error);
             }
         }
         
-        console.log('?? Credenciales de Telegram cargadas:', {
+        console.log('🔐 Credenciales de Telegram cargadas:', {
             hasToken: !!this.telegramBotToken,
             hasChatId: !!this.telegramChatId
         });
@@ -3652,7 +3757,7 @@ const BackupModule = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     chat_id: this.telegramChatId,
-                    text: '? Conexion exitosa con GallOli\n\n?? Tu bot esta configurado correctamente y listo para recibir backups automaticos.'
+                    text: 'Conexion exitosa con GallOli\n\nTu bot esta configurado correctamente y listo para recibir backups automaticos.'
                 })
             });
 
@@ -3681,14 +3786,14 @@ const BackupModule = {
             formData.append('chat_id', this.telegramChatId);
             formData.append('document', blob, backup.filename);
             formData.append('caption', 
-                `?? Backup Automatico GallOli\n` +
-                `?? ${Utils.formatDateTime()}\n\n` +
-                `?? Estadisticas:\n` +
-                `?? Clientes: ${stats.totalClients}\n` +
-                `?? Ventas: ${stats.totalSales}\n` +
-                `?? Pedidos: ${stats.totalOrders}\n` +
-                `?? Gastos: ${stats.totalExpenses}\n` +
-                `?? Tamano: ${stats.totalSize}`
+                `Backup Automatico GallOli\n` +
+                `${Utils.formatDateTime()}\n\n` +
+                `Estadisticas:\n` +
+                `Clientes: ${stats.totalClients}\n` +
+                `Ventas: ${stats.totalSales}\n` +
+                `Pedidos: ${stats.totalOrders}\n` +
+                `Gastos: ${stats.totalExpenses}\n` +
+                `Tamano: ${stats.totalSize}`
             );
 
             const response = await fetch(
@@ -4128,9 +4233,9 @@ const CloudSyncModule = {
         // AuthManager y SyncEngine ya estan inicializados globalmente en App.init()
         // Solo verificar estado
         if (window.AuthManager.isAuthenticated()) {
-            console.log('? Sesion activa en CloudSync');
+            console.log('✅ Sesion activa en CloudSync');
         } else {
-            console.log('?? No hay sesion en CloudSync');
+            console.log('ℹ️ No hay sesion en CloudSync');
         }
     },
     
@@ -4483,13 +4588,13 @@ const CloudSyncModule = {
                             <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
                                 <i class="fas fa-user-circle" style="font-size: 2rem; color: ${u.is_active ? '#2196F3' : '#999'};"></i>
                                 <div>
-                                    <div style="font-weight: bold; ${u.is_active ? '' : 'text-decoration: line-through;'}">${u.name}</div>
+                                    <div style="font-weight: bold; ${u.is_active ? '' : 'text-decoration: line-through;'}">${Utils.escapeHtml(u.name)}</div>
                                     <div style="color: #666; font-size: 0.9rem;">${this.getRoleLabel(u.role)}</div>
                                 </div>
                             </div>
                             <div style="font-size: 0.85rem; color: #666;">
-                                ${u.email ? `<i class="fas fa-envelope"></i> ${u.email}` : ''}
-                                ${u.telegram_username ? `<i class="fab fa-telegram"></i> @${u.telegram_username}` : ''}
+                                ${u.email ? `<i class="fas fa-envelope"></i> ${Utils.escapeHtml(u.email)}` : ''}
+                                ${u.telegram_username ? `<i class="fab fa-telegram"></i> @${Utils.escapeHtml(u.telegram_username)}` : ''}
                             </div>
                             <div style="font-size: 0.85rem; color: #999; margin-top: 0.25rem;">
                                 <i class="fas fa-clock"></i> ultima actividad: ${u.last_seen ? new Date(u.last_seen).toLocaleString('es-ES') : 'Nunca'}
@@ -4497,15 +4602,15 @@ const CloudSyncModule = {
                         </div>
                         ${u.id !== window.AuthManager.user.id && u.role !== 'super_admin' ? `
                         <div style="display: flex; gap: 0.5rem;">
-                            <button onclick="CloudSyncModule.changeUserRole('${u.id}', '${u.name}')" style="padding: 0.5rem 1rem; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            <button onclick="CloudSyncModule.changeUserRole('${u.id}', this.dataset.name)" data-name="${Utils.escapeHtml(u.name)}" style="padding: 0.5rem 1rem; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer;">
                                 <i class="fas fa-user-tag"></i> Cambiar Rol
                             </button>
                             ${u.is_active ? `
-                            <button onclick="CloudSyncModule.deactivateUser('${u.id}', '${u.name}')" style="padding: 0.5rem 1rem; background: #f44336; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            <button onclick="CloudSyncModule.deactivateUser('${u.id}', this.dataset.name)" data-name="${Utils.escapeHtml(u.name)}" style="padding: 0.5rem 1rem; background: #f44336; color: white; border: none; border-radius: 6px; cursor: pointer;">
                                 <i class="fas fa-ban"></i> Desactivar
                             </button>
                             ` : `
-                            <button onclick="CloudSyncModule.activateUser('${u.id}', '${u.name}')" style="padding: 0.5rem 1rem; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            <button onclick="CloudSyncModule.activateUser('${u.id}', this.dataset.name)" data-name="${Utils.escapeHtml(u.name)}" style="padding: 0.5rem 1rem; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer;">
                                 <i class="fas fa-check"></i> Activar
                             </button>
                             `}
@@ -4641,7 +4746,7 @@ const CloudSyncModule = {
                     </div>
                     
                     <div style="margin-bottom: 1rem;">
-                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Usos Maximos:</label>
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Usos Máximos:</label>
                         <input type="number" id="invitation-max-uses" value="1" min="1" max="100" style="width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem;">
                     </div>
                     
@@ -4701,7 +4806,7 @@ const CloudSyncModule = {
                         <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">
                             Rol: <strong>${this.getRoleLabel(data.role)}</strong><br>
                             Usos: <strong>${data.max_uses}</strong><br>
-                            ${data.expires_at ? `Expira: <strong>${new Date(data.expires_at).toLocaleString('es-ES')}</strong>` : 'Sin expiracion'}
+                            ${data.expires_at ? `Expira: <strong>${new Date(data.expires_at).toLocaleString('es-ES')}</strong>` : 'Sin expiración'}
                         </p>
                         <button onclick="navigator.clipboard.writeText('${data.code}'); alert('Codigo copiado')" style="padding: 1rem; background: #2196F3; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%;">
                             <i class="fas fa-copy"></i> Copiar Codigo
@@ -4719,11 +4824,11 @@ const CloudSyncModule = {
     getRoleLabel(role) {
         const labels = {
             'super_admin': '👑 Super Administrador',
-            'admin': '?? Administrador',
-            'vendedor': '?? Vendedor',
-            'repartidor': '?? Repartidor',
-            'contador': '?? Contador',
-            'viewer': '??? Visor'
+            'admin': '🛡️ Administrador',
+            'vendedor': '🛒 Vendedor',
+            'repartidor': '🚚 Repartidor',
+            'contador': '📊 Contador',
+            'viewer': '👁️ Visor'
         };
         return labels[role] || role;
     },

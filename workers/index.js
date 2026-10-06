@@ -550,7 +550,7 @@ async function runScheduledPushNotifications(env, { merma = true, creditos = tru
 function requireRole(user, perms) {
   const matrix = {
     super_admin: '*',
-    admin: ['sales.create','sales.edit','sales.delete','clients.crud','products.crud','prices.edit','expenses.crud','merma.create','routes.assign','routes.execute','orders.manage','reports.view','users.manage','invitations.create','auto-sale.engine','sri.facturar'],
+    admin: ['sales.create','sales.edit','sales.delete','clients.crud','products.crud','prices.edit','expenses.crud','expenses.delete','merma.create','routes.assign','routes.execute','orders.manage','reports.view','users.manage','invitations.create','auto-sale.engine','sri.facturar'],
     vendedor:   ['sales.create','sales.edit','clients.crud','merma.create','routes.execute','orders.manage','auto-sale.engine'],
     repartidor: ['sales.create','routes.execute','orders.manage'],
     contador:   ['expenses.crud','reports.view','sri.facturar'],
@@ -1586,6 +1586,28 @@ async function handleSync(request, env, path, corsHeaders, currentUser) {
       if (!data_type || !data_id || !action) {
         results.push({ error: 'Campos requeridos faltantes', change });
         continue;
+      }
+
+      // Defensa en profundidad: los borrados exigen el permiso del tipo de dato.
+      // El frontend ya oculta los botones, pero cualquiera puede forzar el fetch.
+      if (action === 'delete') {
+        const permisosPorTipo = {
+          sales: 'sales.delete',
+          expenses: 'expenses.delete',
+          orders: 'orders.manage',
+          clients: 'clients.crud',
+          products: 'products.crud',
+          prices: 'prices.edit'
+        };
+        const permisoRequerido = permisosPorTipo[data_type];
+        if (permisoRequerido) {
+          try {
+            requireRole(currentUser, [permisoRequerido]);
+          } catch (permError) {
+            results.push({ error: permError.message, change });
+            continue;
+          }
+        }
       }
       
       try {

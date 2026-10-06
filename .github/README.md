@@ -1,143 +1,59 @@
-# 🚀 GitHub Actions para GallOli
+# GitHub Actions — GallOli
 
-Este directorio contiene los workflows de GitHub Actions que automatizan el despliegue y construcción de GallOli.
+Workflows reales de este repositorio (2):
 
-## 📋 Workflows Disponibles
+| Workflow | Archivo | Trigger | Qué hace |
+|---|---|---|---|
+| APK Nativo | `workflows/build-android-apk.yml` | push a `apk-native` + manual | APK Capacitor completo (BLE foreground service Kotlin, geofence, FCM), firmado con el keystore de release y enviado al canal de Telegram como `GallOli-Native.apk` |
+| APK Básico | `workflows/build-android.yml` | push a `main` + manual | APK Capacitor básico (BLE + FCM), enviado a Telegram como `GallOli.apk` |
 
-### 1. 🌐 Deploy (`deploy.yml`)
-**Trigger:** Push a `main` o `master`
-**Función:** Despliega automáticamente la aplicación web y el worker
+No existe un workflow de deploy a Cloudflare Pages: el frontend se publica a mano con
+`wrangler pages deploy . --project-name=galloli --branch=main` (ver README raíz).
 
-**Acciones:**
-- ✅ Instala dependencias Node.js
-- ✅ Despliega a Cloudflare Pages (proyecto: `galloli`)
-- ✅ Despliega Worker de sincronización
-- ✅ Actualiza automáticamente la app en producción
+## Secrets requeridos
 
-### 2. 📱 Build Android (`build-android.yml`)
-**Trigger:** Tags `v*` o manual
-**Función:** Genera APK de Android usando Capacitor
+Configurar en `Settings > Secrets and variables > Actions`.
 
-**Acciones:**
-- ✅ Configura entorno Android (Java 17, Android SDK)
-- ✅ Instala Capacitor y dependencias
-- ✅ Genera APK debug
-- ✅ Crea release en GitHub con APK adjunto
-- ✅ Sube artefacto para descarga
+| Secret | Uso |
+|---|---|
+| `GOOGLE_SERVICES_JSON` | Contenido del `google-services.json` de Firebase (FCM) |
+| `RELEASE_KEYSTORE` | Keystore de release en base64 (`base64 -w0 galloli-release.keystore`) |
+| `KEYSTORE_PASSWORD` | Password del keystore |
+| `KEY_ALIAS` | Alias de la clave de firma |
+| `KEY_PASSWORD` | Password de la clave |
+| `TELEGRAM_API_ID` | API ID de my.telegram.org (script de envío del APK) |
+| `TELEGRAM_API_HASH` | API hash de my.telegram.org |
+| `TELEGRAM_SESSION` | Sesión de Telethon generada con `.github/scripts/gen_session.py` |
 
-### 3. 🔍 CI (`ci.yml`)
-**Trigger:** Push a cualquier branch
-**Función:** Verificaciones de calidad y testing
+NUNCA escribir tokens ni passwords en este archivo: van como secrets de GitHub o como
+variables del entorno del deployment, jamás en el repositorio.
 
-**Acciones:**
-- ✅ Valida sintaxis JavaScript
-- ✅ Verifica estructura HTML
-- ✅ Analiza tamaños de archivos
-- ✅ Escaneo básico de seguridad
-- ✅ Checks de rendimiento
+## Pasos clave del build APK
 
-### 4. 🏷️ Release (`release.yml`)
-**Trigger:** Tags `v*`
-**Función:** Crea releases formales en GitHub
+1. `npm install --legacy-peer-deps` + plugins Capacitor.
+2. Bundle BLE con esbuild: `js/ble-entry.js` -> `js/ble-bundle.js` (en PWA/TWA queda un stub).
+3. `www/` = `index.html`, `css/`, `js/`, `icons/`, `src/` (nativo), `manifest.json`, `sw.js`, `_headers`, `.well-known/`.
+4. `npx cap add android` + `npx cap sync android`.
+5. Iconos desde `.github/apk-icons/` (mismos que la TWA de Play Store) + splash screens con ImageMagick.
+6. Copia de los archivos Java/Kotlin desde `.github/android-src/` (fuente de verdad; `android/` no está en git).
+7. `google-services.json` desde el secret + `patch_firebase.py`.
+8. Patch de `AndroidManifest.xml` con Python (permisos, servicios foreground, BootReceiver).
+9. `play-services-location` en `app/build.gradle` (FusedLocation).
+10. Keystore en base64 -> `android/app/galloli-release.keystore` y `./gradlew assembleRelease` con las propiedades `-Pandroid.injected.signing.*`.
+11. APK -> artefacto `GallOli-Native-APK` y envío a Telegram.
 
-**Acciones:**
-- ✅ Extrae versión del tag
-- ✅ Genera changelog automático
-- ✅ Crea release con descripción completa
-- ✅ Incluye links de descarga
+## Troubleshooting
 
-## 🔐 Secrets Requeridos
+| Síntoma | Causa típica |
+|---|---|
+| Build APK falla en "Copy native Java/Kotlin files" | Falta un archivo en `.github/android-src/` |
+| Firma falla con `Keystore was tampered with` | `RELEASE_KEYSTORE` no está en base64 o el password no coincide |
+| `INSTALL_PARSE_FAILED_MANIFEST_MALFORMED` | `mimeType` inválido en el AndroidManifest (nunca `.json`) |
+| Verificación del APK falla con "non-ASCII path" | Falta `android.overridePathCheck=true` en `gradle.properties` |
+| No llega el APK a Telegram | Falta `TELEGRAM_SESSION` válida (`gen_session.py`) |
 
-Para que los workflows funcionen, configura estos secrets en:
-`Settings > Secrets and variables > Actions`
+## Recursos
 
-| Secret | Descripción | Valor |
-|--------|-------------|-------|
-| `CLOUDFLARE_API_TOKEN` | Token de API de Cloudflare | `spEDQO6Q5h3gB_3tS-9s5-2SKIrUgYc2GSsDG91N2z0.AOOnF3HJD0dyoqO6SLcsnzqRYhz70rrDWXjp21Ued-w` |
-| `CLOUDFLARE_ACCOUNT_ID` | ID de cuenta de Cloudflare | `ad83f16cea132210cff0f92fe179e628` |
-
-## 🎯 Flujo de Trabajo Típico
-
-### Desarrollo Normal
-```bash
-# 1. Hacer cambios en el código
-git add .
-git commit -m "feat: nueva funcionalidad"
-git push origin main
-
-# 2. GitHub Actions automáticamente:
-#    - Ejecuta CI (tests, validaciones)
-#    - Despliega a Cloudflare Pages
-#    - Despliega Worker actualizado
-#    - App disponible en https://galloli.pages.dev
-```
-
-### Crear Release con APK
-```bash
-# 1. Crear y pushear tag
-git tag v1.2.3
-git push origin v1.2.3
-
-# 2. GitHub Actions automáticamente:
-#    - Ejecuta build de Android
-#    - Genera APK
-#    - Crea release en GitHub
-#    - APK disponible para descarga
-```
-
-## 📊 Estado de los Workflows
-
-Puedes ver el estado de todos los workflows en:
-[https://github.com/ivanbj96/galloli-app/actions](https://github.com/ivanbj96/galloli-app/actions)
-
-### Badges de Estado
-```markdown
-![Deploy](https://github.com/ivanbj96/galloli-app/workflows/Deploy%20to%20Cloudflare%20Pages/badge.svg)
-![CI](https://github.com/ivanbj96/galloli-app/workflows/Continuous%20Integration/badge.svg)
-![Android Build](https://github.com/ivanbj96/galloli-app/workflows/Build%20Android%20APK/badge.svg)
-```
-
-## 🛠️ Configuración Local
-
-Para probar localmente antes del deploy:
-
-```bash
-# Instalar dependencias
-npm install
-
-# Probar sintaxis (como CI)
-find js -name "*.js" -exec node -c {} \;
-
-# Deploy manual (requiere wrangler configurado)
-wrangler pages deploy . --project-name=galloli --branch=main
-cd workers && wrangler deploy
-```
-
-## 🔧 Troubleshooting
-
-### ❌ Deploy falla
-1. Verifica que los secrets estén configurados
-2. Revisa logs en Actions tab
-3. Confirma que wrangler.toml esté correcto
-
-### ❌ APK build falla
-1. Verifica que capacitor.config.ts esté presente
-2. Revisa configuración de Java/Android en workflow
-3. Confirma que package.json tenga dependencias correctas
-
-### ❌ CI falla
-1. Revisa errores de sintaxis en JavaScript
-2. Confirma que todos los archivos estén presentes
-3. Verifica estructura de archivos
-
-## 📚 Recursos
-
-- [GitHub Actions Docs](https://docs.github.com/en/actions)
-- [Cloudflare Pages Actions](https://github.com/cloudflare/pages-action)
-- [Capacitor Android Build](https://capacitorjs.com/docs/android)
+- [GitHub Actions](https://docs.github.com/actions)
+- [Capacitor Android](https://capacitorjs.com/docs/android)
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)
-
----
-
-**¿Problemas?** Abre un issue en el repositorio
-**¿Mejoras?** ¡Pull requests bienvenidos!

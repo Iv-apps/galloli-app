@@ -6,6 +6,16 @@ compatibility_date = "2024-01-22"
 [vars]
 ENVIRONMENT = "production"
 
+# ── Licencias / activación (ver docs/LICENCIAS.md) ────────────────────────────
+# LICENSE_PUBLIC_KEY: clave pública del vendedor (base64url SPKI, curva P-256).
+#   Se genera con:  node sale/tools/licencias.js --init
+#   La clave PRIVADA se queda en tu computadora y es la única que puede emitir códigos.
+# LICENSE_ENFORCED: "1" exige licencia para sincronizar; "0" lo desactiva.
+#   Si LICENSE_PUBLIC_KEY está vacía, el servidor queda abierto (no exige licencia)
+#   aunque LICENSE_ENFORCED sea "1".
+LICENSE_PUBLIC_KEY = ""
+LICENSE_ENFORCED = "0"
+
 # Base de datos D1
 [[d1_databases]]
 binding = "DB"

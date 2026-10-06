@@ -1,5 +1,5 @@
 // Service Worker con versionado automatico
-const APP_VERSION = '7.20.48'; // feat: splash animado propio, permissions.js en precache, keepSession real
+const APP_VERSION = '7.21.0'; // feat: sistema de licencias/activacion (sin licencia la app no sincroniza)
 const CACHE_NAME = `galloli-v${APP_VERSION}`;
 const DATA_CACHE_NAME = `galloli-data-v${APP_VERSION}`;
 
@@ -24,6 +24,7 @@ async function getStaticResources() {
             '/js/app.js',
             '/js/auth.js',
             '/js/permissions.js',
+            '/js/license.js',
             '/js/ble-bundle.js',
             '/js/offline-maps.js',
             '/js/offline-queue.js',

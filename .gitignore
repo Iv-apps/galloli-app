@@ -93,3 +93,8 @@ service-account*.json
 *credentials*.json
 signing-key-info*
 .firebaserc
+
+# Licencias del vendedor: la clave privada y el registro NUNCA se versionan
+sale/licencia-privada.pem
+sale/licencia-publica.pem
+sale/licencias-emitidas.csv

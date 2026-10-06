@@ -92,6 +92,25 @@ CREATE TABLE IF NOT EXISTS invitation_codes (
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
+-- Tabla de licencias / activación (códigos firmados por el vendedor)
+CREATE TABLE IF NOT EXISTS licenses (
+  id TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL UNIQUE,   -- sha256 del código (nunca se guarda en claro)
+  serial TEXT NOT NULL,             -- id corto de la licencia (visible en la app)
+  business_id TEXT NOT NULL,
+  licensee TEXT,                    -- a quién se le vendió
+  plan TEXT DEFAULT 'pro',
+  max_users INTEGER DEFAULT 0,      -- 0 = sin límite
+  domain TEXT,                      -- dominio(s) permitidos, separados por coma; '*' = cualquiera
+  issued_at INTEGER,
+  expires_at INTEGER,               -- NULL = licencia perpetua
+  activated_at INTEGER NOT NULL,
+  activated_by TEXT,
+  last_seen INTEGER,
+  revoked INTEGER DEFAULT 0,
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
 -- Índices
 CREATE INDEX IF NOT EXISTS idx_users_business ON users(business_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_users_telegram ON users(telegram_id) WHERE telegram_id IS NOT NULL;
@@ -142,3 +161,6 @@ CREATE TABLE IF NOT EXISTS password_resets (
 
 CREATE INDEX IF NOT EXISTS idx_pwreset_user ON password_resets(user_id);
 CREATE INDEX IF NOT EXISTS idx_pwreset_token ON password_resets(token_hash);
+
+CREATE INDEX IF NOT EXISTS idx_licenses_business ON licenses(business_id, revoked);
+CREATE INDEX IF NOT EXISTS idx_licenses_serial ON licenses(serial);

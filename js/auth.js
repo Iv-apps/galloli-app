@@ -15,6 +15,7 @@ class AuthManager {
         this.token = null;
         this.user = null;
         this.business = null;
+        this.license = null; // estado de la licencia del negocio (lo llena LicenseModule)
         this.initialized = false;
     }
 
@@ -160,6 +161,13 @@ class AuthManager {
                     }
                 } catch(e) { /* silencioso */ }
             }, 1500);
+
+            // La licencia pertenece al negocio: refrescar el estado al iniciar sesión
+            if (window.LicenseModule) {
+                setTimeout(() => {
+                    window.LicenseModule.refresh({ autoMostrar: true }).catch(() => {});
+                }, 800);
+            }
         }
 
 
@@ -168,6 +176,9 @@ class AuthManager {
         this.token = null;
         this.user = null;
         this.business = null;
+
+        // Al cerrar sesión se va el aviso de licencia
+        if (window.LicenseModule) window.LicenseModule.ocultarAviso();
         
         await this.deleteFromDB(AUTH_CONFIG.TOKEN_KEY);
         await this.deleteFromDB(AUTH_CONFIG.USER_KEY);
@@ -501,6 +512,46 @@ class AuthManager {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.token}`
         };
+    }
+
+    // ─── Licencia / activación ────────────────────────────────────────────────
+
+    /**
+     * Consulta el estado de la licencia del negocio.
+     * @returns {Promise<object|null>} estado, o null si no se pudo consultar
+     */
+    async getLicenseStatus() {
+        if (!this.token) return null;
+        try {
+            const r = await fetch(`${AUTH_CONFIG.API_URL}/api/license/status`, {
+                headers: this.getAuthHeaders()
+            });
+            if (!r.ok) return null;
+            const data = await r.json();
+            this.license = data.license || null;
+            return this.license;
+        } catch (error) {
+            console.warn('No se pudo consultar la licencia:', error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Activa la copia con un código comprado.
+     * @param {string} code - Código GALLOLI1.xxx.yyy
+     */
+    async activateLicense(code) {
+        const r = await fetch(`${AUTH_CONFIG.API_URL}/api/license/activate`, {
+            method: 'POST',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify({ code })
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            throw new Error(data.error || 'No se pudo activar la licencia');
+        }
+        this.license = data.license || null;
+        return data;
     }
 
     // Helpers de IndexedDB

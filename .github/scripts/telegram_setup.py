@@ -32,6 +32,19 @@ import sys
 import urllib.error
 import urllib.request
 
+for _flujo in (sys.stdout, sys.stderr):
+    try:
+        _flujo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+SIN_CONSOLA = (
+    "Este script pide tu telefono y el codigo de Telegram: necesita una consola interactiva.\n"
+    "Si no ves los avisos, ejecutalo DIRECTAMENTE en tu terminal (no por un pipe y no en un\n"
+    "proceso sin stdin), o usa:\n\n"
+    "    nexus run -e production -- python .github/scripts/telegram_setup.py --push-secrets\n"
+)
+
 REPO = os.environ.get("GALLLOLI_REPO") or "Iv-apps/galloli-app"
 CHANNEL_TITLE = os.environ.get("TELEGRAM_CHANNEL_TITLE", "GallOli Artifacts")
 CHANNEL_ABOUT = "APKs firmados de GallOli (builds automaticos de GitHub Actions)."
@@ -144,6 +157,7 @@ async def preparar(api_id, api_hash):
 
 def main():
     parser = argparse.ArgumentParser(description="Configura Telegram para los builds de GallOli")
+    # (el parser se define aqui; los prompts de abajo necesitan stdin interactivo)
     parser.add_argument("--push-secrets", action="store_true",
                         help="sube TELEGRAM_API_ID/HASH/SESSION (+ invitacion) a los secrets del repo")
     parser.add_argument("--limpiar-secrets-de-repo", action="store_true",
@@ -155,6 +169,7 @@ def main():
     if args.limpiar_secrets_de_repo:
         if not token:
             print("❌ Necesito GITHUB_TOKEN para tocar los secrets del repo.")
+            print("   Ejecutalo con: nexus run -e production -- python .github/scripts/telegram_setup.py --limpiar-secrets-de-repo")
             return 1
         limpiar_secrets_repo(token)
         print("\nAhora relanza el workflow de APK: si la sesion de la organizacion sigue viva, el APK llegara.")
@@ -182,8 +197,15 @@ def main():
 
     if args.push_secrets:
         if not token:
-            print("⚠️  Sin GITHUB_TOKEN no puedo subirlos; copialos a mano.")
+            print("⚠️  Sin GITHUB_TOKEN no puedo subirlos; copialos a mano (o usa nexus, que lo inyecta).")
             return 0
+        try:
+            import nacl  # noqa: F401  (solo se usa al cifrar el secret)
+        except ImportError:
+            print("⚠️  Falta PyNaCl para cifrar los secrets:")
+            print("      pip install pynacl")
+            print("    Los valores de arriba siguen siendo validos: pegalos a mano en GitHub.")
+            return 1
         print("--- Subiendo secrets al repo ---")
         gestionar_secrets(token, {
             "TELEGRAM_API_ID": api_id,
@@ -197,4 +219,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (EOFError, KeyboardInterrupt):
+        print("\n" + SIN_CONSOLA)
+        sys.exit(1)

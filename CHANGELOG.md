@@ -61,6 +61,14 @@ Auditoría completa del APK nativo (`apk-native`) y de la PWA/TWA (`main`). Corr
   ningún token en claro.
 - `CHANGELOG.md` creado.
 
+### Seguridad adicional
+- `.gitignore` reforzado: bloquea `.env*`, `*.pem`, `*.p12`, `*.aab`, `*.apk`,
+  `google-services.json`, `service-account*.json`, `*credentials*.json`, `signing-key-info*`
+  y `.firebaserc` para que ningún secreto termine versionado.
+- **Pendiente del dueño**: rotar el token de Cloudflare que estaba en texto plano en
+  `.github/README.md` (sigue en el historial de git) y quitar del entorno del sistema las
+  variables `CLOUDFLARE_API_TOKEN` (inválida), `RESEND_API_KEY` y `SUPABASE_KEY` si no se usan.
+
 ### Notas de despliegue de esta versión
 - **Worker**: hay cambios en `workers/index.js`; requiere `cd workers && wrangler deploy`.
 - **PWA/TWA**: `wrangler pages deploy . --project-name=galloli --branch=main` desde `main` con

@@ -202,21 +202,35 @@ class OfflineQueueManager {
                         }
                         
                         console.log(`✅ Batch ${batchIndex + 1}/${batches.length} procesado`);
+                    } else if (response.status === 401 || response.status === 403) {
+                        // Sesion invalida o rol insuficiente: reintentar no sirve (dead-letter)
+                        const errPermanente = new Error(`HTTP ${response.status}`);
+                        errPermanente.permanent = true;
+                        throw errPermanente;
                     } else {
                         throw new Error(`HTTP ${response.status}`);
                     }
                 } catch (error) {
                     console.error(`❌ Error procesando batch ${batchIndex + 1}:`, error);
                     
-                    // Incrementar reintentos
+                    const esPermanente = !!error.permanent;
+
+                    // Incrementar reintentos (o descartar definitivamente si es 401/403)
                     batch.forEach(change => {
                         change.retries++;
                         change.lastError = error.message;
-                        if (change.retries >= OFFLINE_QUEUE_CONFIG.MAX_RETRIES) {
+                        if (esPermanente) {
+                            change.status = 'dead-letter';
+                            console.error(`⛔ Cambio ${change.id} descartado sin reintentos: ${error.message}`);
+                        } else if (change.retries >= OFFLINE_QUEUE_CONFIG.MAX_RETRIES) {
                             change.status = 'failed';
                             console.error(`⚠️ Cambio ${change.id} falló después de ${OFFLINE_QUEUE_CONFIG.MAX_RETRIES} reintentos`);
                         }
                     });
+
+                    if (esPermanente && typeof Utils !== 'undefined' && Utils.showNotification) {
+                        Utils.showNotification('Un cambio no se pudo sincronizar por falta de permisos. Pide acceso a un administrador.', 'error', 6000);
+                    }
 
                     // Guardar cambios fallidos en DB
                     for (const change of batch) {

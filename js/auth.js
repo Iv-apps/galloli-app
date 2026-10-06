@@ -34,7 +34,7 @@ class AuthManager {
 
     async waitForIndexedDB() {
         if (window.DB && window.DB.db) {
-            console.log('✅ IndexedDB ya estx listo');
+            console.log('✅ IndexedDB ya está listo');
             return;
         }
         
@@ -42,7 +42,7 @@ class AuthManager {
         
         return new Promise((resolve) => {
             let attempts = 0;
-            const maxAttempts = 50; // 5 segundos mxximo
+            const maxAttempts = 50; // 5 segundos máximo
             
             const checkDB = setInterval(() => {
                 attempts++;
@@ -182,7 +182,7 @@ class AuthManager {
             
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.error || 'Código invxlido');
+                throw new Error(error.error || 'Código inválido');
             }
             
             const data = await response.json();
@@ -221,7 +221,7 @@ class AuthManager {
             
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.error || 'Credenciales invxlidas');
+                throw new Error(error.error || 'Credenciales inválidas');
             }
             
             const data = await response.json();
@@ -359,7 +359,7 @@ class AuthManager {
         }
     }
 
-    // Verificar si estx autenticado
+    // Verificar si está autenticado
     isAuthenticated() {
         const authenticated = !!(this.token && this.user && this.business);
         console.log('🔐 Verificando autenticación:', {

@@ -53,7 +53,7 @@ Para que los workflows funcionen, configura estos secrets en:
 
 | Secret | Descripción | Valor |
 |--------|-------------|-------|
-| `CLOUDFLARE_API_TOKEN` | Token de API de Cloudflare | `spEDQO6Q5h3gB_3tS-9s5-2SKIrUgYc2GSsDG91N2z0.AOOnF3HJD0dyoqO6SLcsnzqRYhz70rrDWXjp21Ued-w` |
+| `CLOUDFLARE_API_TOKEN` | Token de API de Cloudflare | `<configurado como secret de GitHub, NUNCA en texto plano>` |
 | `CLOUDFLARE_ACCOUNT_ID` | ID de cuenta de Cloudflare | `ad83f16cea132210cff0f92fe179e628` |
 
 ## 🎯 Flujo de Trabajo Típico

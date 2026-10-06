@@ -166,7 +166,7 @@ const GeoChain = {
             if (nearest.client.id !== this._currentClientId) {
                 this._currentClientId = nearest.client.id;
                 this._status(
-                    `Cliente detectado: ${nearest.client.name} (${Math.round(nearest.distanceM)}m)`,
+                    `Cliente detectado: ${Utils.escapeHtml(nearest.client.name)} (${Math.round(nearest.distanceM)}m)`,
                     'ok'
                 );
                 if (this._onClientDetectedCallback) {
@@ -258,7 +258,7 @@ const GeoChain = {
 
         this._waitingForZero = true;
 
-        const msg = `✅ ${client.name} — ${weight.toFixed(3)} lb — ${Utils.formatCurrency(sale.total)}`;
+        const msg = `✅ ${Utils.escapeHtml(client.name)} — ${weight.toFixed(3)} lb — ${Utils.formatCurrency(sale.total)}`;
         this._status(msg, 'ok');
 
         // Vibración de confirmación

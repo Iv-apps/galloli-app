@@ -1,5 +1,5 @@
 {
-  "version": "7.20.45",
-  "buildDate": "2026-07-30",
-  "description": "fix: deleteOrder y deleteExpense notifican servidor con action=delete; handleRemoteDeletion orders/expenses"
+  "version": "7.20.46",
+  "buildDate": "2026-10-05",
+  "description": "fix: auditoria TWA - RutasModule.generarRutaOptima/limpiarMapa, escapeHtml en datos de usuario, cola offline descarta 401/403, mojibake y emojis"
 }

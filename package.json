@@ -1,6 +1,6 @@
 {
   "name": "galloli-app",
-  "version": "7.20.45",
+  "version": "7.20.46",
   "description": "PWA para gestión integral de ventas de pollos pelados con contabilidad y estadísticas",
   "main": "index.html",
   "scripts": {

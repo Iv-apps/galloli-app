@@ -314,6 +314,20 @@ const Utils = {
             start: this.formatDate(start),
             end: this.formatDate(end)
         };
+    },
+
+    /**
+     * Escapa caracteres HTML para prevenir XSS y evitar que nombres con &, <, ' rompan el DOM.
+     * Usar en TODOS los strings provenientes de DB que se inserten en innerHTML.
+     */
+    escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 };
 

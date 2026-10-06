@@ -1,5 +1,5 @@
 // Service Worker con versionado automatico
-const APP_VERSION = '7.20.45'; // fix: deleteOrder/deleteExpense notifican action=delete; handleRemoteDeletion orders/expenses; version.json
+const APP_VERSION = '7.20.46'; // fix: auditoria TWA - rutas, escapeHtml, cola offline, mojibake
 const CACHE_NAME = `galloli-v${APP_VERSION}`;
 const DATA_CACHE_NAME = `galloli-data-v${APP_VERSION}`;
 
@@ -139,29 +139,32 @@ self.addEventListener('activate', (event) => {
     
     event.waitUntil(
         (async () => {
-            // Limpiar caches viejos PRIMERO
+            // Limpiar caches viejos PRIMERO (si habia caches viejos, es una actualizacion real)
             const cacheKeys = await caches.keys();
+            const cachesViejos = cacheKeys.filter(
+                (cacheName) => cacheName !== CACHE_NAME && cacheName !== DATA_CACHE_NAME
+            );
             await Promise.all(
-                cacheKeys.map(async (cacheName) => {
-                    // Eliminar caches que no sean de la versión actual
-                    if (cacheName !== CACHE_NAME && cacheName !== DATA_CACHE_NAME) {
-                        console.log('[Service Worker] Eliminando cache viejo:', cacheName);
-                        await caches.delete(cacheName);
-                    }
+                cachesViejos.map(async (cacheName) => {
+                    console.log('[Service Worker] Eliminando cache viejo:', cacheName);
+                    await caches.delete(cacheName);
                 })
             );
             
             // Reclamar clientes inmediatamente - FORZAR CONTROL
             await self.clients.claim();
             
-            // Recargar todas las páginas abiertas
-            const clients = await self.clients.matchAll({ type: 'window' });
-            clients.forEach(client => {
-                client.postMessage({
-                    type: 'SW_UPDATED',
-                    version: APP_VERSION
+            // Avisar solo si de verdad habia una version anterior instalada
+            if (cachesViejos.length > 0) {
+                const clients = await self.clients.matchAll({ type: 'window' });
+                clients.forEach(client => {
+                    client.postMessage({
+                        type: 'SW_UPDATED',
+                        version: APP_VERSION,
+                        isUpdate: true
+                    });
                 });
-            });
+            }
             
             console.log('[Service Worker] Activación completada - Versión', APP_VERSION);
             

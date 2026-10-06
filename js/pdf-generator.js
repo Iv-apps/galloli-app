@@ -30,14 +30,14 @@ const PDFGenerator = {
         
         y += 10;
         doc.setFontSize(12);
-        doc.text(`Cliente: ${client.name}`, 15, y);
+        doc.text(`Cliente: ${Utils.escapeHtml(client.name)}`, 15, y);
         
         y += 8;
         doc.setFontSize(10);
-        doc.text(`Teléfono: ${client.phone}`, 15, y);
+        doc.text(`Teléfono: ${Utils.escapeHtml(client.phone)}`, 15, y);
         
         y += 8;
-        doc.text(`Dirección: ${client.address}`, 15, y);
+        doc.text(`Dirección: ${Utils.escapeHtml(client.address)}`, 15, y);
         
         // Detalles de venta
         y += 15;

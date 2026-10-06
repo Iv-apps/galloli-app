@@ -66,29 +66,43 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Android SDK
-        id: setup_sdk
-        uses: android-actions/setup-android@v3
-        continue-on-error: true
-
-      - name: Setup Android SDK (reintento)
-        if: steps.setup_sdk.outcome != 'success'
-        uses: android-actions/setup-android@v3
-        continue-on-error: true
-
-      - name: Verificar Android SDK
+      # El runner ubuntu-latest ya incluye el SDK de Android con cmdline-tools.
+      # No se usa android-actions/setup-android porque fallaba de forma silenciosa y dejaba
+      # el build sin sdkmanager (ver commits del 2026-10-06).
+      - name: Setup Android SDK (preinstalado del runner)
         run: |
-          if ! command -v sdkmanager >/dev/null 2>&1; then
-            echo "sdkmanager no disponible"
-            exit 1
+          set -e
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+
+          CMDLINE="$SDK/cmdline-tools/latest/bin"
+          if [ ! -x "$CMDLINE/sdkmanager" ]; then
+            ENCONTRADO="$(find "$SDK" -name sdkmanager -type f 2>/dev/null | sort | tail -1 || true)"
+            if [ -n "$ENCONTRADO" ]; then
+              CMDLINE="$(dirname "$ENCONTRADO")"
+            fi
           fi
+
+          if [ ! -x "$CMDLINE/sdkmanager" ]; then
+            echo "sdkmanager no encontrado; instalando commandlinetools desde dl.google.com"
+            curl -sS -L -o /tmp/cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q -o /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
+            mkdir -p "$SDK/cmdline-tools"
+            rm -rf "$SDK/cmdline-tools/latest"
+            mv /tmp/cmdline-tools/cmdline-tools "$SDK/cmdline-tools/latest"
+            CMDLINE="$SDK/cmdline-tools/latest/bin"
+          fi
+
+          echo "$CMDLINE" >> "$GITHUB_PATH"
+          export PATH="$CMDLINE:$PATH"
           sdkmanager --version
 
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
+        run: yes | sdkmanager --licenses > /dev/null || true
 
       - name: Install Android SDK components
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+        run: sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: Add Android platform
         run: npx cap add android || echo "Platform already exists"

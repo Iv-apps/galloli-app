@@ -23,6 +23,10 @@ html, body { overflow-x: hidden; }
 * { min-width: 0; min-height: 0; }
 img, svg, video, canvas { max-width: 100%; height: auto; display: block; }
 
+/* El atributo [hidden] debe ganar siempre: sin esto, un `display: flex` propio
+   (p. ej. .chip) anula el `hidden` y el elemento se ve aunque no corresponda. */
+[hidden] { display: none !important; }
+
 .page, .page-content, .modal-content, .card, .form-row {
     max-width: 100%;
     box-sizing: border-box;

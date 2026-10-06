@@ -4,6 +4,30 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 El versionado se hace por `APP_VERSION` en `sw.js`, replicado en `version.json` y `package.json`.
 El historial completo y detallado está en `git log`.
 
+## [7.20.47] — 2026-10-06
+
+Alineación de la rama nativa con la PWA/TWA (`main`) y dos arreglos propios.
+
+### Corregido
+- **`[hidden]` anulado por CSS**: la regla `.chip { display: flex }` pisaba el atributo `hidden`
+  del chip "AUTO", que se veía siempre aunque no estuviera activo. Se agregó la regla
+  `[hidden] { display: none !important; }`.
+- **`CustomSelect.destroy()`**: ahora verifica que el wrapper y el select sigan en el DOM antes
+  de tocarlos (evita `TypeError` cuando un `innerHTML` los borró antes de destruir la instancia).
+
+### Documentación
+- `docs/APK_CAPACITOR_TELEGRAM.md`: guía completa de Capacitor, permisos nativos, build del APK,
+  envío del artifact a Telegram usando los secrets **de organización**
+  (`TELEGRAM_API_ID` / `TELEGRAM_API_HASH` / `TELEGRAM_SESSION`) y splash animado propio sin
+  mostrar nada de Capacitor.
+- `package.json`: la URL del repositorio apuntaba a `ivanbj96/galloli-app`; el remoto real es
+  `Iv-apps/galloli-app`.
+
+### Notas de despliegue
+- Los dos arreglos son de código web y **sí** entran en el APK: se sube `APP_VERSION` a 7.20.47
+  y el push a `apk-native` dispara `build-android-apk.yml` (artifact + envío a Telegram).
+- La `main` (PWA/TWA) recibió el resto de la paridad en su propio commit v7.20.47.
+
 ## [7.20.46] — 2026-10-05
 
 Auditoría completa del APK nativo (`apk-native`) y de la PWA/TWA (`main`). Correcciones:

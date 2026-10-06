@@ -293,10 +293,20 @@ const CustomSelect = {
         if (index === -1) return;
         
         const instance = this.instances[index];
-        instance.wrapper.remove();
-        instance.select.style.display = '';
-        instance.select.dataset.customSelect = 'false';
-        
+        // El wrapper puede haber sido eliminado por innerHTML — verificar antes de remover
+        try {
+            if (instance.wrapper && instance.wrapper.parentNode) {
+                instance.wrapper.remove();
+            }
+        } catch(e) { /* ignorar si ya no existe en el DOM */ }
+        // Restaurar el select original si aún existe en el DOM
+        try {
+            if (instance.select && instance.select.parentNode) {
+                instance.select.style.display = '';
+                instance.select.dataset.customSelect = 'false';
+            }
+        } catch(e) { /* ignorar */ }
+
         this.instances.splice(index, 1);
     },
     

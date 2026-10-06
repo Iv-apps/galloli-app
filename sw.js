@@ -1,5 +1,5 @@
 // Service Worker con versionado automatico
-const APP_VERSION = '7.20.46'; // fix: auditoria APK/TWA - BOM, XSS escapeHtml, rutas, permisos, SW sin cachear API
+const APP_VERSION = '7.20.47'; // fix: paridad con la PWA/TWA - [hidden] respetado, CustomSelect.destroy robusto
 const CACHE_NAME = `galloli-v${APP_VERSION}`;
 const DATA_CACHE_NAME = `galloli-data-v${APP_VERSION}`;
 

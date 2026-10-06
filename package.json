@@ -1,6 +1,6 @@
 {
   "name": "galloli-app",
-  "version": "7.20.46",
+  "version": "7.20.47",
   "description": "PWA para gestión integral de ventas de pollos pelados con contabilidad y estadísticas",
   "main": "index.html",
   "scripts": {
@@ -31,6 +31,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ivanbj96/galloli-app"
+    "url": "https://github.com/Iv-apps/galloli-app"
   }
 }

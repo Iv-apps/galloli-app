@@ -102,3 +102,8 @@ __pycache__/
 
 # Paquete de venta generado (sale/construir-paquete.py)
 dist/
+
+# Licencias del vendedor: la clave privada y el registro NUNCA se versionan
+sale/licencia-privada.pem
+sale/licencia-publica.pem
+sale/licencias-emitidas.csv

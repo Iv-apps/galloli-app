@@ -50,7 +50,14 @@ const App = {
         } catch (error) {
             console.error('Error inicializando autenticación:', error);
         }
-        
+
+        // INICIALIZAR SISTEMA DE LICENCIAS (aviso local + activación)
+        try {
+            if (window.LicenseModule) await window.LicenseModule.init();
+        } catch (error) {
+            console.warn('Error inicializando licencias:', error.message);
+        }
+
         // Inicializar sistema de modales
         Utils.initModals();
         

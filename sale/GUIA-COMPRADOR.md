@@ -54,11 +54,18 @@ organización/usuario de GitHub, la huella del keystore (`.well-known/assetlinks
 canal de Telegram. Los valores que no pases quedan como placeholder para que los encuentres
 con `grep -rn "TU_" .`.
 
-**Poner tu marca es opcional** (el producto se llama GallOli, pero es tu decisión):
+**Poner tu marca es opcional** (el producto se llama GallOli, pero es tu decisión). El nombre
+visible se cambia a mano en tres sitios y los tienes listados en la §7:
 
-```bash
-python tools/personalizar.py --marca "Mi Pollo" --marca-slug mipollo
+```text
+manifest.json        → "name", "short_name"
+capacitor.config.json → "appName"
+index.html           → <title>, <meta name="apple-mobile-web-app-title"> y el texto del splash (#galloli-splash)
 ```
+
+> No cambies identificadores internos como `GallOliDB`, las claves de `localStorage`
+> (`galloli_*`) ni los ids de la base de datos: si los tocas, la app pierde los datos que ya
+tenía guardados en los dispositivos.
 
 ---
 
@@ -216,7 +223,68 @@ El proyecto incluye `build-android.yml`, que genera un **AAB** de tipo TWA.
 
 ---
 
-## 9. Problemas frecuentes
+## 9. Licencias y activación (opcional)
+
+El proyecto incluye un sistema de licencias pensado para el modelo **una copia = un negocio**.
+Tiene dos modos y se controla desde `workers/wrangler.toml`:
+
+**a) Modo abierto.** Si `LICENSE_PUBLIC_KEY` está vacía, el servidor no exige nada y la
+sincronización funciona para todos los negocios. (Si tu copia se construyó con la clave pública
+inclusa, ya arranca en modo licencia.)
+
+**b) Modo licencia.** Con una clave pública configurada y `LICENSE_ENFORCED = "1"`, cada negocio
+debe activar su propio código:
+
+- Sin licencia la app **sigue funcionando 100% local** (vender, cobrar, reportes, respaldos),
+  pero **no sincroniza** con la nube y muestra un aviso con el botón *Activar licencia*.
+- Con la licencia activa todo vuelve a la normalidad: no hay que reinstalar ni reiniciar nada.
+
+### Si ya te entregaron un código de activación
+
+Inicia sesión como dueño (`super_admin`) y pega el código en **Sincronización en la Nube →
+Activar licencia** (o en el botón del aviso rojo de abajo). Sólo el dueño o un `admin` pueden
+activarla.
+
+### Si quieres emitir tus propias licencias
+
+La herramienta es `tools/licencias.js` y no necesita instalar nada (sólo Node):
+
+```bash
+node tools/licencias.js --init        # crea TU par de claves (una sola vez)
+node tools/licencias.js --publica     # imprime la clave pública para el wrangler.toml
+
+node tools/licencias.js --emitir --negocio "Pollos El Buen Sabor" \
+     --dominio mi-sync.mi-cuenta.workers.dev --dias 365 --guardar
+```
+
+- `licencia-privada.pem` **nunca se comparte ni se sube a Git**: es la única llave que firma
+  códigos válidos. Quien no la tenga no puede fabricar licencias.
+- `--dominio` ata el código al Worker para el que se emitió (admite varios separados por coma, o
+  `"*"` para no atar). Un código de otro dominio no se puede activar.
+- `--dias N` o `--perpetua`; `--guardar` va dejando un registro en `licencias-emitidas.csv`.
+- `node tools/licencias.js --info CODIGO` verifica un código y muestra sus datos.
+- `node tools/licencias.js --selftest` comprueba que firmar y verificar funcionan.
+
+Para activarlo en tu Worker: pega la clave pública en `workers/wrangler.toml`
+(`LICENSE_PUBLIC_KEY`), pon `LICENSE_ENFORCED = "1"` y vuelve a desplegar:
+
+```bash
+cd workers
+wrangler d1 execute galloli --remote --file=schema.sql   # crea la tabla licenses
+wrangler deploy
+```
+
+> La tabla `licenses` se crea con `schema.sql` y no guarda el código en claro (sólo su hash).
+> Si la clave pública está configurada pero la tabla no existe, el Worker **no** bloquea la
+> sincronización: lo avisa en los logs para que no te quedes sin nube por un olvido.
+
+### Cómo desactivar las licencias
+
+Pon `LICENSE_ENFORCED = "0"` en `workers/wrangler.toml` y desplega otra vez. Nada más.
+
+---
+
+## 10. Problemas frecuentes
 
 | Síntoma | Causa probable |
 |---|---|
@@ -228,10 +296,14 @@ El proyecto incluye `build-android.yml`, que genera un **AAB** de tipo TWA.
 | El APK no instala encima del anterior | firmaste con otro keystore; **usa siempre el mismo** |
 | La balanza Bluetooth no conecta | concede los permisos de Bluetooth y ubicación (background) — ver `docs/APK_CAPACITOR_TELEGRAM.md` §2 |
 | El GPS no actualiza con la pantalla apagada | hay que excluir la app de la optimización de batería (la app lo pide sola) |
+| La app dice "Modo local" y no sincroniza | falta activar la licencia, o configuraste `LICENSE_PUBLIC_KEY` sin emitir códigos (ver §9) |
+| "El código no es válido para este programa" | el código es de otro proyecto (otra clave privada) o se copió incompleto |
+| "El código está emitido para otro dominio" | el `--dominio` del código no coincide con el host de tu Worker |
+| "Este código ya fue activado en otro negocio" | el código ya se usó: emite uno nuevo |
 
 ---
 
-## 10. Checklist final
+## 11. Checklist final
 
 - [ ] `python tools/personalizar.py` ejecutado con **mis** datos (y `grep -rn "TU_" .` para confirmar que no queda ninguno).
 - [ ] D1 creado + `schema.sql` aplicado + secrets del Worker puestos.
@@ -242,6 +314,8 @@ El proyecto incluye `build-android.yml`, que genera un **AAB** de tipo TWA.
 - [ ] `google-services.json` propio (si uso push nativo).
 - [ ] `assetlinks.json` con mi paquete y la huella de Play (si publico en Play).
 - [ ] Iconos y colores cambiados (si quiero mi marca).
+- [ ] Licencias decididas: activadas con `LICENSE_PUBLIC_KEY` + `LICENSE_ENFORCED = "1"`, o
+      desactivadas a propósito (`"0"`) — ver §9.
 
 ¿Dudas de la parte nativa (Capacitor, permisos, servicios en segundo plano, splash)? Está todo
 detallado en `docs/APK_CAPACITOR_TELEGRAM.md`.

@@ -4181,7 +4181,10 @@ const CloudSyncModule = {
                             </div>
                         </div>
                     </div>
-                    
+
+                    <!-- Licencia / activación (js/license.js) -->
+                    <div id="license-card-slot">${(typeof LicenseModule !== 'undefined') ? LicenseModule.renderCard() : ''}</div>
+
                     <div style="display: grid; gap: 1rem;">
                         <button onclick="CloudSyncModule.syncNow()" style="padding: 1rem; background: linear-gradient(135deg, #2196F3, #1976D2); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
                             <i class="fas fa-sync"></i> Sincronizar Ahora
@@ -4236,6 +4239,11 @@ const CloudSyncModule = {
             console.log('✅ Sesion activa en CloudSync');
         } else {
             console.log('ℹ️ No hay sesion en CloudSync');
+        }
+
+        // Refrescar la tarjeta de licencia (js/license.js) al entrar a esta pagina
+        if (window.LicenseModule) {
+            window.LicenseModule.refresh().catch(() => {});
         }
     },
     

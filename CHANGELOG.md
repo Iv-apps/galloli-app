@@ -4,6 +4,65 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 El versionado se hace por `APP_VERSION` en `sw.js`, replicado en `version.json` y `package.json`.
 El historial completo y detallado está en `git log`.
 
+## [7.21.0] — 2026-10-06
+
+### Agregado — sistema de licencias / activación por copia
+- **Cada copia vendida se activa con su propio código.** Los códigos van firmados con
+  ECDSA P-256 (`GALLOLI1.<payload>.<firma>`) y el Worker los verifica **sin conexión** contra la
+  clave pública del vendedor. Quien copie el código fuente no puede fabricar códigos válidos:
+  la clave privada nunca sale de la computadora del vendedor.
+- **Sin licencia la app no sincroniza**, pero sigue funcionando 100 % local (vender, cobrar,
+  reportes, respaldos): `/api/sync/*` responde **402** `license_required` y la app muestra un
+  aviso con el botón *Activar licencia*.
+- Ata el código a uno o varios dominios (el host del Worker del comprador), admite vencimiento
+  o `--perpetua`, y sólo `super_admin`/`admin` pueden activar.
+- Backend: `workers/license.js` (verificación, estado y puerta de licencia), rutas
+  `GET /api/license/status`, `POST /api/license/activate` y `POST /api/license/deactivate`, y
+  tabla `licenses` en `workers/schema.sql` (guarda el `sha256` del código, nunca el código entero;
+  un mismo código no se puede activar en dos negocios).
+- Frontend: `js/license.js` (aviso fijo, modal de activación, tarjeta de estado en
+  *Sincronización en la Nube* y detección del 402 con un envoltorio de `fetch`), más
+  `AuthManager.getLicenseStatus()` y `AuthManager.activateLicense()` en `js/auth.js`.
+- Herramienta del vendedor `sale/tools/licencias.js`, sin dependencias (sólo Node):
+  `--init` (crear claves), `--publica`, `--emitir`, `--info` y `--selftest`.
+- `docs/LICENCIAS.md`: funcionamiento, API, revocación por SQL, rotación de claves y límites.
+- El paquete de venta incrusta la clave pública del vendedor y pone `LICENSE_ENFORCED = "1"`
+  automáticamente si existe `sale/licencia-publica.pem`.
+
+### Cambiado
+- `LICENSE.txt` del paquete de venta: de MIT a **licencia de uso de una copia = un negocio, con
+  prohibición de reventa y redistribución**, alineada con el sistema de licencias.
+- `sale/tools/personalizar.py`: acepta `--placeholders` (como dice la guía) además de `--listar`,
+  y puede rellenar `LICENSE_PUBLIC_KEY` con `--license-public-key`.
+- La guía del comprador ya no manda ejecutar un `--marca` que no existía: explica los tres
+  archivos donde se cambia el nombre visible y avisa de no tocar `GallOliDB` ni las claves
+  `galloli_*` de `localStorage` (se perderían los datos ya guardados).
+
+### Corregido — defectos de la guía que habrían afectado al comprador
+- El primer comando documentado (`tools/personalizar.py --placeholders --dry-run`) fallaba con
+  *unrecognized arguments*: ahora `--placeholders` existe como alias de `--listar`.
+- El mensaje de error cuando un código es de otro dominio ahora dice explícitamente
+  "El dominio de este código no coincide…".
+
+### Seguridad — leer antes de vender
+- `sale/licencia-privada.pem` **nunca** se versiona (`.gitignore`) ni entra en el ZIP: es la
+  única llave para emitir códigos. **Respáldala**: si se pierde, las licencias ya emitidas siguen
+  valiendo pero no se pueden emitir nuevas con la misma clave (ver `docs/LICENCIAS.md` §7).
+- Un sistema auto-alojado no puede impedir que quien controla el servidor levante la puerta.
+  La protección real es firma asimétrica + atado por dominio + licencia de uso que prohíbe la
+  reventa. Está explicado sin adornos en `docs/LICENCIAS.md` §8.
+
+### Notas de despliegue
+- Es un cambio **web**: sube `APP_VERSION` a 7.21.0 (hecho en `sw.js`, `version.json` y
+  `package.json`) y el APK lo incluye en el siguiente build.
+- El repositorio queda en **modo abierto** (`LICENSE_PUBLIC_KEY = ""` y `LICENSE_ENFORCED = "0"`)
+  para no bloquear la sincronización de nadie al desplegar. Para exigir licencias hay que poner
+  la clave pública y `LICENSE_ENFORCED = "1"` en `workers/wrangler.toml`, y volver a desplegar.
+- Antes de activar la exigencia hay que aplicar `workers/schema.sql` (crea la tabla `licenses`).
+  Si falta, el Worker no bloquea nada y lo avisa en los logs.
+
+---
+
 ## [7.20.48] — 2026-10-06
 
 Splash animado de verdad, "Mantener sesión iniciada" que hace algo, precache del service

@@ -47,6 +47,7 @@ PLACEHOLDERS = [
     ("TU-ORG-GITHUB", "org_github", "tu organización de GitHub"),
     ("TU-USUARIO-GITHUB", "usuario_github", "tu usuario de GitHub"),
     ("https://t.me/+TU_INVITACION", "invite_telegram", "invitación de tu canal de Telegram"),
+    ("TU_LICENSE_PUBLIC_KEY", "license_public_key", "clave pública de licencias (vacía = sin licencias)"),
 ]
 
 
@@ -90,7 +91,9 @@ def main():
     raiz_por_defecto = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
     parser = argparse.ArgumentParser(description="Rellena los placeholders con tus datos")
     parser.add_argument("--raiz", default=raiz_por_defecto, help="carpeta del proyecto")
-    parser.add_argument("--listar", action="store_true", help="solo muestra lo que falta")
+    # --placeholders es como se llama en la guía; --listar es el nombre histórico. Ambos sirven.
+    parser.add_argument("--listar", "--placeholders", dest="listar", action="store_true",
+                        help="solo muestra lo que falta")
     parser.add_argument("--dry-run", action="store_true", help="no escribe, solo informa")
     parser.add_argument("--worker-url")
     parser.add_argument("--worker-nombre")
@@ -103,6 +106,8 @@ def main():
     parser.add_argument("--usuario-github")
     parser.add_argument("--fingerprint")
     parser.add_argument("--invite-telegram")
+    parser.add_argument("--license-public-key",
+                        help="clave pública de licencias (déjalo sin pasar para no exigir licencia)")
     args = parser.parse_args()
 
     raiz = os.path.abspath(args.raiz)

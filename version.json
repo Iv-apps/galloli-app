@@ -1,5 +1,5 @@
 {
-  "version": "7.20.48",
+  "version": "7.21.0",
   "buildDate": "2026-10-06",
-  "description": "feat: splash animado propio, permissions.js en el precache del SW y 'Mantener sesion' real"
+  "description": "feat: sistema de licencias y activacion por copia (sin licencia la app no sincroniza)"
 }

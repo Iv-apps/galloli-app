@@ -1,5 +1,15 @@
 // Cloudflare Worker Principal - API REST
 import { SessionManager } from './session-manager.js';
+import {
+  clavesConfianza,
+  verificarCodigo,
+  sha256Hex,
+  normalizarCodigo,
+  licenciaActiva,
+  estadoLicencia,
+  bloqueoPorLicencia,
+  dominioPermitido,
+} from './license.js';
 
 export { SessionManager };
 
@@ -72,6 +82,14 @@ export default {
         return handleUsers(request, env, path, corsHeaders, currentUser);
       }
       
+      // Licencias / activación (requieren auth)
+      if (path.startsWith('/api/license')) {
+        if (!currentUser) {
+          return jsonResponse({ error: 'Authentication required' }, corsHeaders, 401);
+        }
+        return handleLicense(request, env, path, corsHeaders, currentUser);
+      }
+
       // Sync endpoints (requieren auth)
       if (path.startsWith('/api/sync')) {
         if (!currentUser) {
@@ -1566,8 +1584,171 @@ async function handleUsers(request, env, path, corsHeaders, currentUser) {
   return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
 }
 
+// Licencias / activación
+// El código se verifica SIN conexión contra la clave pública del vendedor.
+// Sólo el dueño (super_admin/admin) puede activar la licencia del negocio.
+async function handleLicense(request, env, path, corsHeaders, currentUser) {
+  const method = request.method;
+  const puedeActivar = ['super_admin', 'admin'].includes(currentUser.role);
+
+  // GET /api/license/status - Estado de la licencia del negocio
+  if (path === '/api/license/status' && method === 'GET') {
+    const license = await estadoLicencia(env, currentUser.business_id, request);
+    return jsonResponse({ success: true, license }, corsHeaders);
+  }
+
+  // POST /api/license/activate - Activar con el código comprado
+  if (path === '/api/license/activate' && method === 'POST') {
+    if (!puedeActivar) {
+      return jsonResponse(
+        { error: 'Solo el administrador del negocio puede activar la licencia' },
+        corsHeaders,
+        403
+      );
+    }
+
+    const { code } = await getRequestBody(request);
+    if (!code || !String(code).trim()) {
+      return jsonResponse({ error: 'Escribe el código de activación' }, corsHeaders, 400);
+    }
+
+    // Servidor sin licencias configuradas: no hay nada que activar.
+    if (!licenciaActiva(env)) {
+      const license = await estadoLicencia(env, currentUser.business_id, request);
+      return jsonResponse(
+        {
+          success: true,
+          message: 'Este servidor no exige licencias (modo abierto).',
+          license,
+        },
+        corsHeaders
+      );
+    }
+
+    const claves = clavesConfianza(env);
+    const resultado = await verificarCodigo(code, claves);
+    if (!resultado.ok) {
+      const mensajes = {
+        formato: 'El código no tiene el formato correcto. Copia el código completo, sin espacios.',
+        firma: 'El código no es válido para este programa (la firma no coincide).',
+        'sin-clave': 'Este servidor no tiene configurada la clave pública de licencias.',
+      };
+      return jsonResponse(
+        { error: mensajes[resultado.motivo] || 'Código inválido' },
+        corsHeaders,
+        400
+      );
+    }
+
+    const p = resultado.payload || {};
+    const ahora = Date.now();
+
+    if (p.e && Number(p.e) < ahora) {
+      return jsonResponse(
+        { error: `Este código venció el ${new Date(Number(p.e)).toLocaleDateString('es-EC')}` },
+        corsHeaders,
+        400
+      );
+    }
+
+    // La licencia puede venir atada a uno o varios dominios (los del comprador).
+    const host = new URL(request.url).host;
+    if (!dominioPermitido(p.d, host)) {
+      return jsonResponse(
+        { error: `El dominio de este código no coincide: está emitido para ${p.d} y este servidor es ${host}.` },
+        corsHeaders,
+        400
+      );
+    }
+
+    const hash = await sha256Hex(normalizarCodigo(code));
+    const previa = await env.DB.prepare(
+      `SELECT business_id FROM licenses WHERE code_hash = ?`
+    )
+      .bind(hash)
+      .first();
+
+    if (previa && previa.business_id !== currentUser.business_id) {
+      return jsonResponse(
+        { error: 'Este código ya fue activado en otro negocio' },
+        corsHeaders,
+        409
+      );
+    }
+
+    // Un negocio tiene una sola licencia activa: la nueva reemplaza a la anterior.
+    await env.DB.prepare(`DELETE FROM licenses WHERE business_id = ?`)
+      .bind(currentUser.business_id)
+      .run();
+
+    await env.DB.prepare(`
+      INSERT INTO licenses (
+        id, code_hash, serial, business_id, licensee, plan, max_users, domain,
+        issued_at, expires_at, activated_at, activated_by, last_seen
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+      .bind(
+        generateId(),
+        hash,
+        String(p.s || ''),
+        currentUser.business_id,
+        String(p.l || ''),
+        String(p.p || 'pro'),
+        Number(p.u || 0),
+        String(p.d || ''),
+        Number(p.i || 0) || null,
+        p.e ? Number(p.e) : null,
+        ahora,
+        currentUser.id,
+        ahora
+      )
+      .run();
+
+    const license = await estadoLicencia(env, currentUser.business_id, request);
+    console.log(`✅ Licencia activada para el negocio ${currentUser.business_id} (serial ${p.s || '?'})`);
+    return jsonResponse(
+      { success: true, message: '¡Licencia activada! La sincronización ya está disponible.', license },
+      corsHeaders
+    );
+  }
+
+  // POST /api/license/deactivate - Quitar la licencia de este negocio
+  if (path === '/api/license/deactivate' && method === 'POST') {
+    if (!puedeActivar) {
+      return jsonResponse(
+        { error: 'Solo el administrador del negocio puede quitar la licencia' },
+        corsHeaders,
+        403
+      );
+    }
+    await env.DB.prepare(`DELETE FROM licenses WHERE business_id = ?`)
+      .bind(currentUser.business_id)
+      .run();
+    const license = await estadoLicencia(env, currentUser.business_id, request);
+    return jsonResponse({ success: true, license }, corsHeaders);
+  }
+
+  return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
+}
+
 // Sync handlers
 async function handleSync(request, env, path, corsHeaders, currentUser) {
+  // Puerta de licencia: sin licencia activa no se sincroniza nada con la nube,
+  // pero la app sigue funcionando 100% local.
+  const bloqueo = await bloqueoPorLicencia(env, currentUser.business_id, request);
+  if (bloqueo) {
+    return jsonResponse(
+      {
+        error: 'licencia_requerida',
+        code: 'license_required',
+        message: bloqueo.mensaje || 'Se requiere una licencia activa para sincronizar.',
+        license: bloqueo,
+      },
+      corsHeaders,
+      402
+    );
+  }
+
   const method = request.method;
   
   // POST /api/sync/push - Subir cambios locales

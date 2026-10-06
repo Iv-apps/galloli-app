@@ -10,8 +10,12 @@ Qué hace:
    deja como placeholders visibles.
 3. **Verifica** que no quedó ningún dato del vendedor. Si queda algo, no genera el ZIP.
 4. Comprueba la sintaxis del paquete resultante (`node --check` y `JSON.parse`).
-5. Añade la guía del comprador, la herramienta `tools/personalizar.py` y una licencia MIT.
-6. Comprime en `dist/GallOli-<version>-plantilla.zip`.
+5. Añade la guía del comprador, las herramientas `tools/personalizar.py` y `tools/licencias.js`,
+   y la licencia de uso (una copia = un negocio, sin reventa).
+6. **Incrusta tu clave pública de licencias** (`sale/licencia-publica.pem`, generada con
+   `node sale/tools/licencias.js --init`) y activa `LICENSE_ENFORCED = "1"`, para que cada
+   copia vendida necesite su código. Si no existe esa clave, el paquete sale en modo abierto.
+7. Comprime en `dist/GallOli-<version>-plantilla.zip`.
 
 Uso:  python sale/construir-paquete.py
 """
@@ -73,25 +77,55 @@ PROHIBIDOS = [
     "dev.pages.galloli.twa", "QPr885dQgl0wNDgx", "B5:09:51:3F:F2:D5:DF:34",
 ]
 
-LICENCIA = """Licencia MIT
+# Cambia esta línea por tu nombre o el de tu empresa: es quien figura como titular.
+TITULAR = "TU NOMBRE O TU EMPRESA"
 
-Copyright (c) 2026 TU NOMBRE O TU EMPRESA
+LICENCIA = """LICENCIA DE USO DE SOFTWARE — GallOli
+Versión 1.0
 
-Por la presente se concede permiso, libre de cargos, a cualquier persona que obtenga una
-copia de este software y de los archivos de documentación asociados (el "Software"), para
-utilizar el Software sin restricción, incluyendo sin limitación los derechos de usar, copiar,
-modificar, fusionar, publicar, distribuir, sublicenciar y/o vender copias del Software, y
-para permitir a las personas a las que se les proporcione el Software que lo hagan, con
-sujeto a las siguientes condiciones:
+Titular de los derechos: {titular} (en adelante, "el Autor")
 
-El aviso de copyright anterior y este aviso de permiso se incluirán en todas las copias o
-partes sustanciales del Software.
+1. OBJETO
+   El Autor concede al comprador (en adelante, "el Licenciatario") una licencia de uso sobre el
+   software GallOli: código fuente, archivos, imágenes, documentación y recursos incluidos en
+   este paquete (en adelante, "el Software").
 
-EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O IMPLÍCITA,
-INCLUYENDO PERO NO LIMITADO A LAS GARANTÍAS DE COMERCIABILIDAD, IDONEIDAD PARA UN PROPÓSITO
-PARTICULAR Y NO INFRACCIÓN. EN NINGÚN CASO LOS AUTORES O TITULARES DEL COPYRIGHT SERÁN
-RESPONSABLES DE NINGUNA RECLAMACIÓN, DAÑO U OTRA RESPONSABILIDAD.
-"""
+2. ALCANCE DE LA LICENCIA
+   a) Una (1) licencia = un (1) negocio del Licenciatario. Si el Licenciatario administra varios
+      negocios, necesita una licencia por cada uno.
+   b) El Licenciatario puede modificar el Software y usarlo libremente dentro de su negocio.
+   c) La licencia es perpetua y no exclusiva.
+
+3. PROHIBICIONES
+   No se permite, sin autorización previa y por escrito del Autor:
+   a) Revender, sublicenciar, alquilar, prestar, regalar, ceder o distribuir el Software, ni
+      total ni parcialmente, ni su código fuente, con o sin modificaciones.
+   b) Publicar el código fuente o versiones derivadas en repositorios públicos, tiendas de
+      aplicaciones, webs de plantillas o cualquier otro medio de distribución, gratis o pago.
+   c) Ofrecer el Software como servicio a terceros (SaaS, hosting, reventa blanca).
+   d) Compartir, publicar o ceder la clave pública de licencias configurada, los códigos de
+      activación o cualquier credencial del Software fuera del negocio del Licenciatario.
+   e) Retirar o alterar los avisos de autoría y el sistema de licencias.
+
+4. ACTIVACIÓN
+   El Software incorpora un sistema de licencias por copia. Las copias sin una licencia válida
+   y activa funcionan de forma local y no sincronizan con la nube. El Licenciatario no puede
+   eliminar, neutralizar ni eludir ese sistema con el fin de redistribuir el Software.
+
+5. GARANTÍA
+   EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O IMPLÍCITA,
+   INCLUYENDO PERO NO LIMITADO A LAS GARANTÍAS DE COMERCIABILIDAD, IDONEIDAD PARA UN PROPÓSITO
+   PARTICULAR Y NO INFRACCIÓN. EN NINGÚN CASO EL AUTOR SERÁ RESPONSABLE DE NINGUNA RECLAMACIÓN,
+   DAÑO O OTRA RESPONSABILIDAD, YA SEA POR CONTRATO, AGRAVIO O DE OTRO MODO, DERIVADA DEL
+   SOFTWARE O DE SU USO.
+
+6. TERMINACIÓN
+   El incumplimiento de cualquiera de estas condiciones extingue la licencia de forma inmediata
+   y automática, sin perjuicio de las acciones legales que correspondan.
+
+7. LEY APLICABLE
+   Esta licencia se rige por las leyes del país del Autor.
+""".format(titular=TITULAR)
 
 
 def log(msg=""):
@@ -108,6 +142,35 @@ def version():
 
 def es_texto(ruta):
     return ruta.endswith(ARCHIVOS_TEXTO) or os.path.basename(ruta) in NOMBRES_TEXTO
+
+
+def leer_clave_publica():
+    """Lee la clave pública de licencias generada con `node sale/tools/licencias.js --init`."""
+    ruta = os.path.join(VENTA, "licencia-publica.pem")
+    if not os.path.exists(ruta):
+        return ""
+    with open(ruta, encoding="utf-8") as fh:
+        lineas = [l.strip() for l in fh.read().splitlines()]
+    return "".join(l for l in lineas if l and not l.startswith("-----"))
+
+
+def incrustar_clave_de_licencias(paquete, clave):
+    """Pone la clave pública del vendedor en el wrangler.toml y activa la exigencia de licencia."""
+    ruta = os.path.join(paquete, "workers", "wrangler.toml")
+    if not os.path.exists(ruta):
+        return False
+    with open(ruta, encoding="utf-8") as fh:
+        contenido = fh.read()
+    original = contenido
+    contenido = re.sub(r'LICENSE_PUBLIC_KEY\s*=\s*"[^"]*"',
+                       'LICENSE_PUBLIC_KEY = "%s"' % clave, contenido)
+    contenido = re.sub(r'LICENSE_ENFORCED\s*=\s*"[^"]*"',
+                       'LICENSE_ENFORCED = "1"', contenido)
+    if contenido == original:
+        return False
+    with open(ruta, "w", encoding="utf-8", newline="") as fh:
+        fh.write(contenido)
+    return True
 
 
 def recorrer(raiz):
@@ -212,6 +275,8 @@ def main():
     os.makedirs(os.path.join(paquete, "tools"), exist_ok=True)
     shutil.copy2(os.path.join(VENTA, "tools", "personalizar.py"),
                  os.path.join(paquete, "tools", "personalizar.py"))
+    shutil.copy2(os.path.join(VENTA, "tools", "licencias.js"),
+                 os.path.join(paquete, "tools", "licencias.js"))
     shutil.copy2(os.path.join(VENTA, "GUIA-COMPRADOR.md"),
                  os.path.join(paquete, "GUIA-COMPRADOR.md"))
     shutil.copy2(os.path.join(VENTA, "GUIA-COMPRADOR.md"),
@@ -225,6 +290,21 @@ def main():
     log(f"   {tocados} archivos modificados:")
     for etiqueta, cuantos in sorted(conteo.items()):
         log(f"     · {cuantos:4d}  {etiqueta}")
+
+    # 3b) licencias: la clave privada NUNCA se copia; sólo la pública va al Worker
+    log("\n-- Licencias --")
+    clave_publica = leer_clave_publica()
+    if clave_publica:
+        incrustado = incrustar_clave_de_licencias(paquete, clave_publica)
+        if incrustado:
+            log(f"   Clave publica incrustada en workers/wrangler.toml ({len(clave_publica)} chars).")
+            log("   LICENSE_ENFORCED = \"1\": cada copia necesitara su codigo de activacion.")
+        else:
+            log("   (aviso) no encontre las variables de licencia en workers/wrangler.toml")
+    else:
+        log("   (aviso) no existe sale/licencia-publica.pem: el paquete sale SIN exigir licencia.")
+        log("   Genera tus claves con:  node sale/tools/licencias.js --init")
+        log("   y vuelve a construir el paquete para que cada copia pida su codigo.")
 
     # 4) verificación
     log("\n-- Verificando que no quede nada del vendedor --")
@@ -257,7 +337,7 @@ def main():
         nombres = zf.namelist()
     log(f"\nZIP listo: {os.path.relpath(destino_zip, RAIZ)} ({tamanio:.2f} MB, {len(nombres)} archivos)")
     log("   Incluye: app (PWA), workers/ (Cloudflare), .github/ (CI del APK), docs/, "
-        "GUIA-COMPRADOR.md, tools/personalizar.py, LICENSE.txt")
+        "GUIA-COMPRADOR.md, tools/personalizar.py, tools/licencias.js, LICENSE.txt")
     return 0
 
 

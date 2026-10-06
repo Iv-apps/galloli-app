@@ -48,6 +48,16 @@ Auditoría de la PWA/TWA (rama `main`). Correcciones:
   deploy, reglas de desarrollo, tablas D1 reales).
 - `CHANGELOG.md` creado.
 
+### Seguridad adicional
+- `.gitignore` reforzado: bloquea `.env*`, `*.pem`, `*.p12`, `*.aab`, `*.apk`,
+  `google-services.json`, `service-account*.json`, `*credentials*.json`, `signing-key-info*`
+  y `.firebaserc` para que ningún secreto termine versionado.
+- Eliminados del árbol los logs de CI versionados por error (`logs3/`, `run_logs/`, `run_logs2/`
+  y sus `.zip`).
+- **Pendiente del dueño**: rotar el token de Cloudflare que estaba en texto plano en
+  `.github/README.md` (sigue en el historial de git) y quitar del entorno del sistema las
+  variables `CLOUDFLARE_API_TOKEN` (inválida), `RESEND_API_KEY` y `SUPABASE_KEY` si no se usan.
+
 ### Notas de despliegue de esta versión
 - **PWA/TWA**: `wrangler pages deploy . --project-name=galloli --branch=main` desde `main` con
   todo commiteado.

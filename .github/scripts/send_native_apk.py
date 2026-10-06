@@ -37,7 +37,10 @@ async def main():
     session_str = os.environ["TELEGRAM_SESSION"]
 
     commit_sha = os.environ.get("GITHUB_SHA", "unknown")[:7]
-    commit_msg = os.environ.get("COMMIT_MESSAGE", "sin mensaje")
+    # Telegram limita los captions a 1024 caracteres: recortamos el mensaje del commit
+    commit_msg = os.environ.get("COMMIT_MESSAGE", "sin mensaje").strip().replace("\r", "")
+    if len(commit_msg) > 400:
+        commit_msg = commit_msg[:400].rstrip() + "..."
     run_number = os.environ.get("GITHUB_RUN_NUMBER", "?")
     app_version = os.environ.get("APP_VERSION", "?")
 
@@ -61,6 +64,9 @@ async def main():
             f"✅ Incluye: BLE background, GPS geofence, venta automática, BootReceiver\n"
             f"📲 Instalar: Habilitar fuentes desconocidas en Android y abrir el APK"
         )
+
+        if len(caption) > 1024:
+            caption = caption[:1020] + "..."
 
         await client.send_file(channel, APK_PATH, caption=caption)
         print("APK nativo enviado exitosamente a Telegram.")

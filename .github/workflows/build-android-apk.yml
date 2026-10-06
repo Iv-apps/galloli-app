@@ -295,7 +295,9 @@ jobs:
         id: version
         run: echo "APP_VERSION=$(grep -o 'APP_VERSION.*=.*' sw.js | head -1 | grep -o \"'[^']*'\" | head -1 | tr -d \"'\")" >> $GITHUB_OUTPUT
 
+      # El APK ya quedo subido como artifact: si Telegram falla, el build no debe marcarse rojo
       - name: Send APK to Telegram
+        continue-on-error: true
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}

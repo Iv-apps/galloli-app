@@ -1,5 +1,5 @@
 // Service Worker con versionado automatico
-const APP_VERSION = '7.20.46'; // fix: auditoria TWA - rutas, escapeHtml, cola offline, mojibake
+const APP_VERSION = '7.20.47'; // fix: paridad con APK nativo - permisos por rol, password reset, GPS, CSS responsive
 const CACHE_NAME = `galloli-v${APP_VERSION}`;
 const DATA_CACHE_NAME = `galloli-data-v${APP_VERSION}`;
 
@@ -33,6 +33,7 @@ async function getStaticResources() {
             '/js/custom-select.js',
             '/js/bluetooth-scale.js',
             '/js/geo-chain.js',
+            '/js/weight-stability.js',
             '/js/facturacion-electronica.js',
             '/js/facturacion-ui.js',
             '/manifest.json',
@@ -154,7 +155,8 @@ self.addEventListener('activate', (event) => {
             // Reclamar clientes inmediatamente - FORZAR CONTROL
             await self.clients.claim();
             
-            // Avisar solo si de verdad habia una version anterior instalada
+            // Avisar solo si de verdad habia una version anterior instalada:
+            // en la primera instalacion no hay nada que actualizar para el usuario.
             if (cachesViejos.length > 0) {
                 const clients = await self.clients.matchAll({ type: 'window' });
                 clients.forEach(client => {
@@ -208,7 +210,11 @@ self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
     
     const url = new URL(event.request.url);
-    
+
+    // Nunca cachear la API ni navegaciones con parametros de autenticacion
+    if (url.pathname.startsWith('/api/')) return;
+    if (url.searchParams.has('reset') || url.searchParams.has('action')) return;
+
     // Ignorar solicitudes a APIs externas (excepto CDNs conocidas)
     if (url.hostname !== self.location.hostname && 
         !url.hostname.includes('cdnjs.cloudflare.com') &&

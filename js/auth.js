@@ -1,4 +1,4 @@
-﻿// Sistema de Autenticación - GallOli Cloud Sync
+// Sistema de Autenticación - GallOli Cloud Sync
 // Maneja login con Telegram, Email y PIN
 
 const AUTH_CONFIG = {
@@ -340,6 +340,87 @@ class AuthManager {
             console.error('❌ Error estableciendo PIN:', error);
             throw error;
         }
+    }
+
+    // ─── Recuperación de contraseña ──────────────────────────────────────────
+
+    /**
+     * Solicita un enlace de recuperación de contraseña por email.
+     * El Worker envía el link al Telegram del usuario (o email como fallback).
+     * Siempre devuelve 200 para no revelar si el email existe.
+     */
+    async forgotPassword(email) {
+        const r = await fetch(`${AUTH_CONFIG.API_URL}/api/auth/email/forgot`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || 'Error al solicitar recuperación');
+        }
+        return r.json();
+    }
+
+    /**
+     * Establece una nueva contraseña usando el token recibido por Telegram/email.
+     * @param {string} token - Token de 32 bytes hex del enlace de recuperación
+     * @param {string} newPassword - Nueva contraseña
+     */
+    async resetPassword(token, newPassword) {
+        const r = await fetch(`${AUTH_CONFIG.API_URL}/api/auth/email/reset`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, password: newPassword })
+        });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || 'Token inválido o expirado');
+        }
+        return r.json();
+    }
+
+    /**
+     * Recupera el email enmascarado a partir del Telegram ID del usuario.
+     * Útil cuando el usuario no recuerda con qué email se registró.
+     * @param {string} telegramId - ID numérico de Telegram
+     * @returns {{ email: string }} email enmascarado, ej: "j***@gmail.com"
+     */
+    async recoverEmailViaTelegram(telegramId) {
+        const r = await fetch(`${AUTH_CONFIG.API_URL}/api/auth/email/recover-by-telegram`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telegram_id: telegramId })
+        });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || 'No se encontró ninguna cuenta con ese Telegram ID');
+        }
+        return r.json();
+    }
+
+    /**
+     * Registra un nuevo empleado usando un código de invitación.
+     * El empleado queda unido al negocio del dueño con el rol asignado en la invitación.
+     * @param {string} email
+     * @param {string} password
+     * @param {string} name
+     * @param {string} invitationCode - Código de 8 caracteres generado por el dueño
+     */
+    async registerWithInvitation(email, password, name, invitationCode) {
+        const r = await fetch(`${AUTH_CONFIG.API_URL}/api/auth/email/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, name, invitation_code: invitationCode })
+        });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || 'Error en registro');
+        }
+        const data = await r.json();
+        await this.saveSession(data.token, data.user, data.business);
+        if (window.SyncEngine) await window.SyncEngine.init();
+        return { success: true, user: data.user, business: data.business };
     }
 
     // Logout

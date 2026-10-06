@@ -2,7 +2,8 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <title>GallOli - Gestión Integral</title>
     <meta name="description" content="PWA para venta de pollos pelados con contabilidad y estadísticas">
     <meta name="theme-color" content="#4CAF50">
@@ -244,6 +245,10 @@
                     <h1>GallOli</h1>
                 </div>
                 <div class="header-actions">
+                    <!-- Chip indicador de venta automática activa (§3.3) -->
+                    <span id="autoSaleChip" class="chip chip--off" hidden>
+                        <span class="dot"></span> AUTO
+                    </span>
                     <button class="btn btn-outline" onclick="App.syncData()" title="Sincronizar">
                         <i class="fas fa-sync-alt"></i>
                     </button>
@@ -319,15 +324,15 @@
                         <div id="location-map" style="height: 400px; width: 100%;"></div>
                         <div class="map-coordinates">
                             <div class="coordinate">
-                                <label for="map-latitude">Latitud:</label>
+                                <label>Latitud:</label>
                                 <input type="text" id="map-latitude" readonly>
                             </div>
                             <div class="coordinate">
-                                <label for="map-longitude">Longitud:</label>
+                                <label>Longitud:</label>
                                 <input type="text" id="map-longitude" readonly>
                             </div>
                             <div class="coordinate">
-                                <label for="map-address">Dirección:</label>
+                                <label>Dirección:</label>
                                 <input type="text" id="map-address" placeholder="Haz clic en el mapa">
                             </div>
                         </div>
@@ -393,6 +398,7 @@
     <script src="js/offline-maps.js"></script>
     <script src="js/custom-select.js"></script>
     <script src="js/auth.js"></script>
+    <script src="js/permissions.js"></script>
     <script src="js/offline-queue.js"></script>
     <script src="js/sync-engine.js"></script>
     <script src="js/modules.js"></script>
@@ -400,6 +406,7 @@
     <script src="js/notify-system.js"></script>
     <script src="js/bluetooth-scale.js"></script>
     <script src="js/geo-chain.js"></script>
+    <script src="js/weight-stability.js"></script>
     <script src="js/payment-processor.js"></script>
     <script src="js/auto-backup.js"></script>
     <script src="js/facturacion-electronica.js"></script>

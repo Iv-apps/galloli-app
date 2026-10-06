@@ -12,6 +12,95 @@
     --warning: #FF9800;
     --sidebar-width: 280px;
     --bottom-nav-height: 70px; /* ALTURA FIJA PARA NAV INFERIOR */
+    /* Safe area y tap target */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --tap: 44px;
+}
+
+/* === Sistema responsive global GallOli === */
+html, body { overflow-x: hidden; }
+* { min-width: 0; min-height: 0; }
+img, svg, video, canvas { max-width: 100%; height: auto; display: block; }
+
+/* El atributo [hidden] debe ganar siempre: sin esto, un `display: flex` propio
+   (p. ej. .chip) anula el `hidden` y el elemento se ve aunque no corresponda. */
+[hidden] { display: none !important; }
+
+.page, .page-content, .modal-content, .card, .form-row {
+    max-width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+}
+
+/* Botones: target táctil mínimo 44px + nunca desbordar */
+.btn, button {
+    min-height: var(--tap);
+    padding: clamp(.5rem, 2vw, .9rem) clamp(.75rem, 3vw, 1.25rem);
+    font-size: clamp(.85rem, 2.6vw, 1rem);
+    white-space: normal;
+    word-break: break-word;
+}
+
+/* Modales: full-height en mobile, dvh evita el bug del 100vh + barra del navegador */
+.modal { padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0); }
+.modal-content {
+    width: min(96vw, 560px);
+    max-height: 92dvh;
+    display: flex;
+    flex-direction: column;
+}
+.modal-body { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.modal-footer { display: flex; flex-wrap: wrap; gap: .5rem; }
+.modal-footer .btn { flex: 1 1 140px; }
+
+/* Grids universales */
+.grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 1rem; }
+.row-wrap  { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+/* Tabs (sync, ventas) */
+.tabs-bar { display: flex; flex-wrap: wrap; gap: .25rem; overflow-x: auto; }
+.tabs-bar .tab { flex: 0 0 auto; }
+
+/* Tablas → pasan a "tarjetas" en <600px */
+@media (max-width: 600px) {
+    .responsive-table thead { display: none; }
+    .responsive-table, .responsive-table tbody, .responsive-table tr, .responsive-table td { display: block; width: 100%; }
+    .responsive-table tr { border: 1px solid #e5e7eb; border-radius: .75rem; padding: .75rem; margin-bottom: .5rem; }
+    .responsive-table td { display: flex; justify-content: space-between; gap: .5rem; padding: .25rem 0; border: none; }
+    .responsive-table td::before { content: attr(data-label); font-weight: 600; color: #374151; }
+}
+
+/* Extra-pequeños (<= 360px) */
+@media (max-width: 360px) {
+    .modal-content { width: 98vw; border-radius: .5rem; }
+    .modal-header h3 { font-size: 1rem; }
+    .btn { font-size: .8rem; padding: .55rem .65rem; }
+    .bottom-nav .bottom-nav-item span { display: none; }
+}
+@media (max-width: 280px) {
+    body { font-size: 13px; }
+    .modal-content { width: 100vw; max-height: 100dvh; border-radius: 0; }
+}
+
+/* Inputs: evitar zoom iOS (font-size >= 16px) */
+input, select, textarea {
+    font-size: 16px;
+    max-width: 100%;
+}
+.modal-body { scroll-padding-bottom: 6rem; }
+
+/* Clase utilitaria para inputs/selects con estilo consistente */
+.form-control {
+    width: 100%;
+    padding: clamp(.6rem, 2vw, .85rem);
+    border: 2px solid var(--border, #ddd);
+    border-radius: .5rem;
+    font-size: 1rem;
+    box-sizing: border-box;
+    background: var(--bg, #fff);
+    color: var(--text, #333);
 }
 
 * {
@@ -1054,6 +1143,9 @@ select.form-input {
     background: var(--white);
     display: none;
     justify-content: space-around;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
     padding: 10px 0 15px 0;
     /* Respetar safe area en dispositivos con barra de gestos */
     padding-bottom: calc(15px + env(safe-area-inset-bottom, 0px));
@@ -1064,6 +1156,7 @@ select.form-input {
     backdrop-filter: blur(10px);
     background-color: rgba(255, 255, 255, 0.95);
 }
+.bottom-nav::-webkit-scrollbar { display: none; }
 
 .bottom-nav-item {
     display: flex;
@@ -1076,7 +1169,9 @@ select.form-input {
     font-size: 0.75rem;
     cursor: pointer;
     touch-action: manipulation;
-    width: 20%;
+    flex: 0 0 auto;
+    min-width: 64px;
+    scroll-snap-align: start;
     transition: all 0.3s;
     position: relative;
     border-radius: 10px;
@@ -1936,8 +2031,7 @@ select.form-input {
 /* Acciones de configuración */
 .config-actions {
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
+    gap: 15px;
     margin-top: 20px;
     padding-top: 20px;
     border-top: 1px solid #eee;
@@ -1945,7 +2039,6 @@ select.form-input {
 
 .config-actions .btn {
     flex: 1;
-    min-width: 120px;
 }
 
 /* Preview en tiempo real */
@@ -2589,4 +2682,43 @@ input:checked + .slider:hover {
     .custom-select-options {
         max-height: 190px;
     }
+}
+
+/* ─── Chip indicador de venta automática (§3.3) ─────────────────────────── */
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    vertical-align: middle;
+}
+.chip--on {
+    background: hsl(140 60% 92%);
+    color: hsl(140 50% 25%);
+}
+.chip--on .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: hsl(140 70% 40%);
+    box-shadow: 0 0 0 0 hsl(140 70% 40% / .7);
+    animation: chipPulse 1.4s infinite;
+}
+.chip--off {
+    background: hsl(0 0% 92%);
+    color: hsl(0 0% 40%);
+}
+.chip--off .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: hsl(0 0% 60%);
+}
+@keyframes chipPulse {
+    70%  { box-shadow: 0 0 0 8px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
 }

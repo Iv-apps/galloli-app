@@ -3,7 +3,7 @@
 > PWA + TWA (Google Play) + APK básico (Capacitor) para gestión de ventas, inventario,
 > contabilidad, créditos y pedidos, con pesaje Bluetooth y sincronización multi-dispositivo.
 
-![Version](https://img.shields.io/badge/version-7.20.46-blue)
+![Version](https://img.shields.io/badge/version-7.20.47-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-lightgrey)
 
@@ -12,7 +12,7 @@
 | Versión | Rama | Distribución | Notas |
 |---|---|---|---|
 | **PWA / TWA** | `main` (esta rama) | Cloudflare Pages + Play Store | App ID Play: `dev.pages.galloli.twa`, dominio: `galloli.ivapps.store`. Corre en Chrome, sin APIs nativas. |
-| **APK básico** | `main` | CI `build-android.yml` -> Telegram | Capacitor (`store.ivapps.galloli`) con BLE foreground service y FCM básico. |
+| **APK básico** | `main` | Build manual (sin CI en esta rama) | Capacitor (`store.ivapps.galloli`) con BLE foreground service y FCM básico. Las fuentes nativas viven en `.github/android-src/`. |
 | **APK nativo (producción del dueño)** | `apk-native` | CI `build-android-apk.yml` -> Telegram | Añade geofence en Kotlin, arranque al reiniciar el equipo y venta automática. Esa rama **nunca** se mergea a `main`. |
 
 ## Características
@@ -36,8 +36,12 @@
 
 ### 🔐 Cuentas
 - Login con **Telegram** (código de verificación), **email + contraseña** o **PIN**.
-- Roles (`super_admin`, `admin`, `vendedor`, `repartidor`, `contador`, `viewer`) aplicados en el
-  Worker para las operaciones sensibles (usuarios, invitaciones y borrados del sync).
+- **Recuperación de contraseña**: enlace con token de un solo uso que caduca a los 30 min; el
+  Worker lo envía al Telegram del usuario y el enlace `?reset=<token>` abre el modal de nueva
+  contraseña.
+- Roles (`super_admin`, `admin`, `vendedor`, `repartidor`, `contador`, `viewer`) definidos en una
+  sola matriz (`js/permissions.js`, `window.Perm`) y aplicados **en el cliente** (ocultar botones)
+  y **en el Worker** (rechazar la operación) para usuarios, invitaciones y borrados del sync.
 
 ### 🔄 Sincronización y respaldo
 - WebSocket en tiempo real (Durable Objects) + REST (`/api/sync/push`, `/api/sync/pull`).
@@ -68,11 +72,13 @@ galloli/
 ├── js/
 │   ├── app.js                  # App: navegación, páginas, pesaje en cadena
 │   ├── modules.js              # Módulos de datos (clientes, ventas, pedidos, rutas, sync)
-│   ├── auth.js                 # AuthManager (Telegram, email, PIN)
+│   ├── auth.js                 # AuthManager (Telegram, email, PIN, recuperación de contraseña)
+│   ├── permissions.js          # Matriz de permisos por rol (window.Perm)
 │   ├── sync-engine.js          # WebSocket + REST + merge de datos
 │   ├── offline-queue.js        # Cola offline con reintentos y dead-letter
 │   ├── bluetooth-scale.js      # Balanza BLE CAMRY
 │   ├── geo-chain.js            # Pesaje automático por GPS
+│   ├── weight-stability.js     # Detección de peso estable (ventana + tolerancia)
 │   ├── ble-bundle.js           # Stub en PWA/TWA; generado por esbuild en el APK
 │   └── ...                     # db, utils, pdf, backup, facturación, notificaciones
 ├── workers/
@@ -81,7 +87,6 @@ galloli/
 │   ├── schema.sql              # Esquema D1
 │   └── wrangler.toml
 ├── .github/
-│   ├── workflows/build-android.yml   # CI del APK básico
 │   ├── android-src/                  # Fuente de verdad de los archivos Java/Kotlin
 │   └── scripts/                      # patch_firebase, disable_splash, envío a Telegram
 └── .well-known/assetlinks.json       # Fingerprint de Google Play Signing (TWA)
@@ -110,10 +115,9 @@ wrangler pages deploy . --project-name=galloli --branch=main
 ```
 
 ### APK
-```bash
-# cambios en main -> CI build-android.yml -> APK a Telegram
-git push origin main
-```
+Esta rama (`main`) no tiene workflows. El APK lo construye la rama `apk-native`
+(`.github/workflows/build-android-apk.yml`), que sube el artifact y lo envía a Telegram.
+Detalle en `docs/APK_CAPACITOR_TELEGRAM.md`.
 
 ### TWA (AAB para Play Store)
 Build manual con Bubblewrap desde `GallOli - Google Play package2/` (incrementar `versionCode`
@@ -138,7 +142,7 @@ en `app/build.gradle` y `appVersionCode` en `twa-manifest.json`). Detalle en
 - IndexedDB `GallOliDB`: `clients`, `sales`, `orders`, `expenses`, `prices`, `mermaRecords`,
   `diezmos`, `paymentHistory`, `config`, `syncQueue`, `auth`.
 - D1: `businesses`, `users`, `sessions`, `sync_data`, `changes`, `invitation_codes`,
-  `verification_codes`, `push_subscriptions`.
+  `verification_codes`, `push_subscriptions`, `password_resets`.
 
 ## Contribuir
 

@@ -202,7 +202,7 @@ const PushNotifications = {
         for (const clientId in clientsWithDebt) {
             const { client, totalDebt, sales } = clientsWithDebt[clientId];
             await this.show(
-                `${Utils.escapeHtml(client.name)} - Credito Activo`,
+                `${client.name} - Credito Activo`,
                 `Deuda: ${typeof Utils !== 'undefined' ? Utils.formatCurrency(totalDebt) : totalDebt} (${sales.length} venta${sales.length > 1 ? 's' : ''})`,
                 { tag: `credit-${clientId}`, requireInteraction: true, vibrate: [300, 100, 300],
                   data: { type: 'credit', clientId, clientName: client.name, totalDebt, sales: sales.map(s => s.id) } }

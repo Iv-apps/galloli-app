@@ -1,4 +1,4 @@
-﻿// app.js - COMPLETO Y FUNCIONAL
+// app.js - COMPLETO Y FUNCIONAL
 const App = {
     currentPage: 'dashboard',
     currentDate: Utils.getTodayDate(),
@@ -69,13 +69,20 @@ const App = {
         // Inicializar balanza BLE
         BluetoothScale.init();
 
-        // Sincronizar datos al servicio nativo (APK) y procesar ventas pendientes
-        setTimeout(() => {
+        // SINCRONIZAR CON SERVICE WORKER
+        this.syncDevModeWithServiceWorker();
+        
+        // Inicializar configuración PRIMERO
+        await ConfigModule.init();
+        
+        // Cargar datos
+        await this.loadAllData();
+
+        // Sincronizar al servicio nativo DESPUES de loadAllData (clientes y precio ya disponibles)
+        if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
             App._syncDataToNativeService();
             App._processPendingNativeSales();
-            // Leer token FCM del servicio nativo y registrarlo en el Worker
             App._registerNativeFcmToken();
-            // Iniciar motor de venta automática (solo APK nativo, se autodescarta en TWA)
             if (typeof initNativeAutoSale === 'function') {
                 initNativeAutoSale({
                     mode: 'auto',
@@ -87,16 +94,7 @@ const App = {
                     sriEnabled: false
                 });
             }
-        }, 2000);
-        
-        // SINCRONIZAR CON SERVICE WORKER
-        this.syncDevModeWithServiceWorker();
-        
-        // Inicializar configuración PRIMERO
-        await ConfigModule.init();
-        
-        // Cargar datos
-        await this.loadAllData();
+        }
         this.setupNavigation();
         this.setupEventListeners();
         this.loadPage('dashboard');
@@ -134,6 +132,9 @@ const App = {
         // Procesar acción de notificación desde URL
         this.checkNotificationActionFromURL();
 
+        // Detectar ?reset=token para recuperación de contraseña
+        this._checkPasswordResetFromURL();
+
         // Manejar file_handlers (archivos abiertos desde el explorador)
         this.handleFileHandlers();
 
@@ -157,31 +158,36 @@ const App = {
         let lastVisibilityChange = Date.now();
         
         document.addEventListener('visibilitychange', async () => {
-            if (!document.hidden) {
-                // La app se volvió visible
-                const now = Date.now();
-                const timeSinceLastChange = now - lastVisibilityChange;
-                
-                console.log('👁️ App visible - Tiempo desde último cambio:', timeSinceLastChange, 'ms');
-                
-                // Procesar ventas registradas en segundo plano (APK nativo)
-                await App._processPendingNativeSales();
-
-                // Si pasaron mas de 2 segundos desde el último cambio, recargar datos
-                if (timeSinceLastChange > 2000) {
-                    console.log('🔄 Recargando datos...');
-                    
-                    // Recargar todos los datos
-                    await this.loadAllData();
-                    
-                    // Recargar la pagina actual para reflejar cambios
-                    this.loadPage(this.currentPage);
-                    
-                    console.log('✅ Datos actualizados');
-                }
-                
-                lastVisibilityChange = now;
+            if (document.hidden) {
+                // App va a background — ceder BLE al servicio nativo
+                await App._handoffBleToNativeService();
+                return;
             }
+
+            // App vuelve a primer plano
+            const now = Date.now();
+            const timeSinceLastChange = now - lastVisibilityChange;
+
+            console.log('👁️ App visible - Tiempo desde último cambio:', timeSinceLastChange, 'ms');
+
+            // Procesar ventas registradas en segundo plano (APK nativo)
+            await App._processPendingNativeSales();
+            // Resincronizar datos al servicio nativo
+            App._syncDataToNativeService();
+            // Reconectar balanza JS si hace falta
+            if (window.BluetoothScale && !BluetoothScale.isConnected && BluetoothScale.activeScaleId) {
+                BluetoothScale._autoReconnect && BluetoothScale._autoReconnect();
+            }
+
+            // Si pasaron mas de 2 segundos desde el último cambio, recargar datos
+            if (timeSinceLastChange > 2000) {
+                console.log('🔄 Recargando datos...');
+                await this.loadAllData();
+                this.loadPage(this.currentPage);
+                console.log('✅ Datos actualizados');
+            }
+
+            lastVisibilityChange = now;
         });
         
         // También detectar cuando la ventana recibe foco
@@ -293,6 +299,74 @@ const App = {
         });
     },
     
+    // Detectar ?reset=token en la URL y abrir modal de nueva contraseña
+    _checkPasswordResetFromURL() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const resetToken = urlParams.get('reset');
+        if (!resetToken) return;
+        // El token se inyecta en un atributo onclick: validar formato hex antes de usarlo
+        if (!/^[a-f0-9]{32,128}$/i.test(resetToken)) {
+            console.warn('⚠️ Token de recuperación con formato inválido, ignorado');
+            window.history.replaceState({}, document.title, window.location.pathname);
+            return;
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setTimeout(() => {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width:400px;">
+                    <div class="modal-header" style="background:linear-gradient(135deg,#4CAF50,#388E3C);color:white;">
+                        <h3><i class="fas fa-key"></i> Nueva contraseña</h3>
+                    </div>
+                    <div class="modal-body" style="padding:1.5rem;">
+                        <p style="margin-bottom:1rem;color:#666;font-size:.9rem;">Ingresa tu nueva contraseña para completar la recuperación.</p>
+                        <div class="form-group">
+                            <label style="font-weight:600;font-size:.9rem;">Nueva contraseña</label>
+                            <input type="password" id="reset-pwd-input" class="form-input" placeholder="Mínimo 6 caracteres" style="margin-top:.4rem;">
+                        </div>
+                        <div class="form-group" style="margin-top:.75rem;">
+                            <label style="font-weight:600;font-size:.9rem;">Confirmar contraseña</label>
+                            <input type="password" id="reset-pwd-confirm" class="form-input" placeholder="Repite la contraseña" style="margin-top:.4rem;">
+                        </div>
+                        <div id="reset-pwd-msg" style="margin-top:.75rem;font-size:.85rem;display:none;"></div>
+                        <button onclick="App._submitPasswordReset('${resetToken}')"
+                                style="width:100%;margin-top:1rem;padding:1rem;background:linear-gradient(135deg,#4CAF50,#388E3C);color:white;border:none;border-radius:8px;font-weight:700;cursor:pointer;">
+                            <i class="fas fa-check"></i> Guardar nueva contraseña
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            setTimeout(() => { const el = document.getElementById('reset-pwd-input'); if (el) el.focus(); }, 100);
+        }, 1500);
+    },
+
+    async _submitPasswordReset(token) {
+        const pwd = (document.getElementById('reset-pwd-input') || {}).value || '';
+        const confirm = (document.getElementById('reset-pwd-confirm') || {}).value || '';
+        const msgEl = document.getElementById('reset-pwd-msg');
+        if (pwd.length < 6) {
+            if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#f44336'; msgEl.textContent = 'La contraseña debe tener al menos 6 caracteres.'; }
+            return;
+        }
+        if (pwd !== confirm) {
+            if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#f44336'; msgEl.textContent = 'Las contraseñas no coinciden.'; }
+            return;
+        }
+        try {
+            await window.AuthManager.resetPassword(token, pwd);
+            if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#4CAF50'; msgEl.textContent = 'Contraseña actualizada. Ahora puedes iniciar sesión.'; }
+            setTimeout(() => {
+                const m = document.querySelector('.modal.active');
+                if (m) m.remove();
+                this.loadPage('cloud-sync');
+            }, 2000);
+        } catch (e) {
+            if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#f44336'; msgEl.textContent = e.message || 'Token inválido o expirado.'; }
+        }
+    },
+
     // Verificar si hay una acción de notificación en la URL
     checkNotificationActionFromURL() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -502,12 +576,12 @@ const App = {
                     <h3><i class="fas fa-cog"></i> Configuración de Porcentajes</h3>
                     <form id="diezmos-config-form">
                         <div class="form-group">
-                            <label class="form-label" for="diezmo-percent">Porcentaje de Diezmo (%)</label>
+                            <label class="form-label">Porcentaje de Diezmo (%)</label>
                             <input type="number" step="0.1" min="0" max="100" class="form-input" 
                                    id="diezmo-percent" value="${DiezmosModule.config.diezmoPercent}" required>
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="ofrenda-percent">Porcentaje de Ofrenda (%)</label>
+                            <label class="form-label">Porcentaje de Ofrenda (%)</label>
                             <input type="number" step="0.1" min="0" max="100" class="form-input" 
                                    id="ofrenda-percent" value="${DiezmosModule.config.ofrendaPercent}" required>
                         </div>
@@ -533,11 +607,11 @@ const App = {
                     <div style="margin-bottom: 20px;">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
                             <div class="form-group" style="margin: 0;">
-                                <label class="form-label" for="diezmos-start-date" style="font-size: 0.85rem;">Fecha Inicio</label>
+                                <label class="form-label" style="font-size: 0.85rem;">Fecha Inicio</label>
                                 <input type="date" class="form-input" id="diezmos-start-date">
                             </div>
                             <div class="form-group" style="margin: 0;">
-                                <label class="form-label" for="diezmos-end-date" style="font-size: 0.85rem;">Fecha Fin</label>
+                                <label class="form-label" style="font-size: 0.85rem;">Fecha Fin</label>
                                 <input type="date" class="form-input" id="diezmos-end-date">
                             </div>
                         </div>
@@ -755,6 +829,17 @@ const App = {
                     </div>
                 </div>
 
+                ${Object.keys(clientsWithDebt).length > 0 ? `
+                <!-- Buscador de creditos -->
+                <div style="position: relative; margin-bottom: 15px;">
+                    <i class="fas fa-search" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--gray); pointer-events: none;"></i>
+                    <input type="text" id="creditos-search" class="form-input"
+                           placeholder="Buscar por nombre o teléfono..."
+                           style="padding-left: 40px;"
+                           oninput="App._filterCreditosPage(this.value)">
+                </div>
+                ` : ''}
+
                 ${Object.keys(clientsWithDebt).length === 0 ? `
                     <div class="card" style="background: #E8F5E9; border-left: 4px solid var(--success);">
                         <p style="margin: 0; color: var(--success);">
@@ -763,8 +848,9 @@ const App = {
                     </div>
                 ` : ''}
 
+                <div id="creditos-list">
                 ${Object.values(clientsWithDebt).map(data => `
-                    <div class="card">
+                    <div class="card credito-card" data-client-name="${(data.client.name || '').toLowerCase()}" data-client-phone="${(data.client.phone || '').toLowerCase()}">
                         <h3>
                             <i class="fas fa-user"></i> ${Utils.escapeHtml(data.client.name)}
                             <span style="float: right; color: var(--danger); font-size: 1.2rem;">
@@ -828,6 +914,7 @@ const App = {
                         </ul>
                     </div>
                 `).join('')}
+                </div>
             </div>
         `;
 
@@ -835,6 +922,16 @@ const App = {
         if (mainContent) {
             mainContent.innerHTML = html;
         }
+    },
+
+    // Filtrar lista de creditos por nombre o telefono
+    _filterCreditosPage(query) {
+        const q = query.toLowerCase().trim();
+        document.querySelectorAll('.credito-card').forEach(card => {
+            const name = card.dataset.clientName || '';
+            const phone = card.dataset.clientPhone || '';
+            card.style.display = (!q || name.includes(q) || phone.includes(q)) ? '' : 'none';
+        });
     },
 
     showPaymentModal(saleId) {
@@ -863,13 +960,13 @@ const App = {
                     
                     <form id="payment-form">
                         <div class="form-group">
-                            <label class="form-label" for="payment-amount">Monto a Pagar</label>
+                            <label class="form-label">Monto a Pagar</label>
                             <input type="number" step="0.01" min="0.01" 
                                    class="form-input" id="payment-amount" required 
                                    placeholder="Máximo: ${sale.remainingDebt.toFixed(2)}">
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="payment-date">Fecha del Pago</label>
+                            <label class="form-label">Fecha del Pago</label>
                             <input type="date" class="form-input" id="payment-date" 
                                    value="${Utils.getTodayDate()}" required>
                         </div>
@@ -944,7 +1041,7 @@ const App = {
 
                     <form id="smart-payment-form">
                         <div class="form-group">
-                            <label class="form-label" for="smart-payment-amount">Monto a Pagar</label>
+                            <label class="form-label">Monto a Pagar</label>
                             <input type="number" step="0.01" min="0.01" max="${totalDebt.toFixed(2)}"
                                    class="form-input" id="smart-payment-amount" required 
                                    placeholder="Máximo: ${totalDebt.toFixed(2)}">
@@ -965,7 +1062,7 @@ const App = {
                         </div>
                         
                         <div class="form-group">
-                            <label class="form-label" for="smart-payment-date">Fecha del Pago</label>
+                            <label class="form-label">Fecha del Pago</label>
                             <input type="date" class="form-input" id="smart-payment-date" 
                                    value="${Utils.getTodayDate()}" required>
                         </div>
@@ -1151,7 +1248,7 @@ const App = {
                     <h3 style="margin-bottom: 20px;"><i class="fas fa-filter"></i> Filtros de Búsqueda</h3>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px;">
                         <div class="form-group" style="margin: 0;">
-                            <label class="form-label" for="filter-client" style="font-weight: 600;">
+                            <label class="form-label" style="font-weight: 600;">
                                 <i class="fas fa-user"></i> Cliente
                             </label>
                             <select class="form-input" id="filter-client" onchange="App.filterPaymentHistory()" style="border: 2px solid var(--border);">
@@ -1160,13 +1257,13 @@ const App = {
                             </select>
                         </div>
                         <div class="form-group" style="margin: 0;">
-                            <label class="form-label" for="filter-start-date" style="font-weight: 600;">
+                            <label class="form-label" style="font-weight: 600;">
                                 <i class="fas fa-calendar-alt"></i> Fecha Inicio
                             </label>
                             <input type="date" class="form-input" id="filter-start-date" onchange="App.filterPaymentHistory()" style="border: 2px solid var(--border);">
                         </div>
                         <div class="form-group" style="margin: 0;">
-                            <label class="form-label" for="filter-end-date" style="font-weight: 600;">
+                            <label class="form-label" style="font-weight: 600;">
                                 <i class="fas fa-calendar-check"></i> Fecha Fin
                             </label>
                             <input type="date" class="form-input" id="filter-end-date" onchange="App.filterPaymentHistory()" style="border: 2px solid var(--border);">
@@ -1410,21 +1507,21 @@ loadConfigPage() {
                 <!-- Inputs de color personalizados -->
                 <div class="custom-color-inputs">
                     <div class="color-input-group">
-                        <label for="color-input-primary">Color Primario:</label>
+                        <label>Color Primario:</label>
                         <div class="color-input-wrapper">
-                            <input type="color" id="color-input-primary" name="color-input-primary" class="color-input" value="${ConfigModule.currentConfig.colors.primary}" 
+                            <input type="color" class="color-input" value="${ConfigModule.currentConfig.colors.primary}" 
                                    onchange="ConfigModule.currentConfig.colors.primary = this.value; ConfigModule.applyConfig(); ConfigModule.saveConfig();">
-                            <input type="text" id="color-hex-primary" name="color-hex-primary" class="color-hex-input" value="${ConfigModule.currentConfig.colors.primary}" 
+                            <input type="text" class="color-hex-input" value="${ConfigModule.currentConfig.colors.primary}" 
                                    onchange="ConfigModule.currentConfig.colors.primary = this.value; ConfigModule.applyConfig(); ConfigModule.saveConfig();">
                         </div>
                     </div>
                     
                     <div class="color-input-group">
-                        <label for="color-input-secondary">Color Secundario:</label>
+                        <label>Color Secundario:</label>
                         <div class="color-input-wrapper">
-                            <input type="color" id="color-input-secondary" name="color-input-secondary" class="color-input" value="${ConfigModule.currentConfig.colors.secondary}" 
+                            <input type="color" class="color-input" value="${ConfigModule.currentConfig.colors.secondary}" 
                                    onchange="ConfigModule.currentConfig.colors.secondary = this.value; ConfigModule.applyConfig(); ConfigModule.saveConfig();">
-                            <input type="text" id="color-hex-secondary" name="color-hex-secondary" class="color-hex-input" value="${ConfigModule.currentConfig.colors.secondary}" 
+                            <input type="text" class="color-hex-input" value="${ConfigModule.currentConfig.colors.secondary}" 
                                    onchange="ConfigModule.currentConfig.colors.secondary = this.value; ConfigModule.applyConfig(); ConfigModule.saveConfig();">
                         </div>
                     </div>
@@ -1437,14 +1534,14 @@ loadConfigPage() {
                 
                 <!-- Nombre de la App -->
                 <div class="form-group">
-                    <label class="form-label" for="config-app-name">Nombre de la Aplicación</label>
+                    <label class="form-label">Nombre de la Aplicación</label>
                     <input type="text" class="form-input" id="config-app-name" 
                            value="${ConfigModule.currentConfig.appName}"
                            onchange="ConfigModule.setAppName(this.value)">
                 </div>
                 
                 <div class="form-group">
-                    <label class="form-label" for="config-app-shortname">Nombre Corto (para PWA)</label>
+                    <label class="form-label">Nombre Corto (para PWA)</label>
                     <input type="text" class="form-input" id="config-app-shortname" 
                            value="${ConfigModule.currentConfig.appShortName}"
                            onchange="ConfigModule.currentConfig.appShortName = this.value">
@@ -1523,15 +1620,13 @@ loadConfigPage() {
                     <i class="fas fa-info-circle"></i> Herramientas para diagnosticar problemas en la app
                 </p>
                 <div class="config-actions">
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
-                        <button class="btn btn-outline" onclick="showErrorLog()">
-                            <i class="fas fa-list"></i> Ver Log de Errores
-                        </button>
-                        <button class="btn btn-outline" onclick="clearErrorLog()">
-                            <i class="fas fa-trash"></i> Limpiar Log
-                        </button>
-                    </div>
-                    <button class="btn btn-success" onclick="PushNotifications.test()" style="width:100%;">
+                    <button class="btn btn-outline" onclick="showErrorLog()" style="width: 100%; margin-bottom: 10px;">
+                        <i class="fas fa-list"></i> Ver Log de Errores
+                    </button>
+                    <button class="btn btn-outline" onclick="clearErrorLog()" style="width: 100%; margin-bottom: 10px;">
+                        <i class="fas fa-trash"></i> Limpiar Log
+                    </button>
+                    <button class="btn btn-success" onclick="PushNotifications.test()" style="width: 100%;">
                         <i class="fas fa-bell"></i> Probar Notificaciones Push
                     </button>
                 </div>
@@ -2393,14 +2488,24 @@ async cleanDuplicatePayments() {
                 <div class="card">
                     <h3><i class="fas fa-plus-circle"></i> Nueva Venta</h3>
                     ${(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) ? `
-                    <div id="auto-sale-status-bar" style="width:100%;margin-bottom:15px;padding:14px;background:linear-gradient(135deg,#1b5e20,#2e7d32);color:white;border-radius:10px;font-size:0.95rem;cursor:pointer;" onclick="App.startChainWeighing()">
+                    <div id="auto-sale-status-bar" style="width:100%;margin-bottom:15px;padding:14px;background:var(--light);border-radius:10px;font-size:0.95rem;border:2px solid var(--border);">
                         <div style="display:flex;align-items:center;gap:10px;">
-                            <i class="fas fa-robot" style="font-size:1.3rem;"></i>
-                            <div>
-                                <div style="font-weight:600;">Venta automatica activa</div>
-                                <small style="opacity:0.85;">${BluetoothScale.isConnected ? 'Balanza conectada — pesando en segundo plano' : 'Conecta la balanza para activar'}</small>
+                            <i class="fas fa-robot" style="font-size:1.3rem;color:var(--primary);"></i>
+                            <div style="flex:1;">
+                                <div style="font-weight:600;">Venta automática en segundo plano</div>
+                                <small style="color:var(--gray);">${BluetoothScale.isConnected ? 'Balanza conectada — pesando en segundo plano' : 'Conecta la balanza para activar'}</small>
                             </div>
-                            <i class="fas fa-chevron-right" style="margin-left:auto;opacity:0.7;"></i>
+                            <label class="switch" style="margin:0;" onclick="event.stopPropagation()">
+                                <input type="checkbox" id="auto-sale-toggle"
+                                       ${localStorage.getItem('autoSale.enabled') === '1' ? 'checked' : ''}
+                                       onchange="App._onAutoSaleToggle(this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div style="margin-top:8px;">
+                            <button type="button" class="btn btn-outline" style="width:100%;font-size:0.85rem;padding:8px;" onclick="App.startChainWeighing()">
+                                <i class="fas fa-weight"></i> Abrir modo pesaje manual
+                            </button>
                         </div>
                     </div>` : `
                     <button type="button" class="btn btn-primary" style="width:100%;margin-bottom:15px;padding:14px;font-size:1rem;" onclick="App.startChainWeighing()">
@@ -2431,13 +2536,13 @@ async cleanDuplicatePayments() {
                                 <i class="fas fa-user-plus"></i> Agregar Cliente Rapido
                             </h4>
                             <div class="form-group" style="margin-bottom: 10px;">
-                                <input type="text" class="form-input" id="quick-client-name" name="quick-client-name" placeholder="Nombre" style="width: 100%; box-sizing: border-box;">
+                                <input type="text" class="form-input" id="quick-client-name" placeholder="Nombre" style="width: 100%; box-sizing: border-box;">
                             </div>
                             <div class="form-group" style="margin-bottom: 10px;">
-                                <input type="tel" class="form-input" id="quick-client-phone" name="quick-client-phone" placeholder="Telefono" style="width: 100%; box-sizing: border-box;">
+                                <input type="tel" class="form-input" id="quick-client-phone" placeholder="Telefono" style="width: 100%; box-sizing: border-box;">
                             </div>
                             <div class="form-group" style="margin-bottom: 12px;">
-                                <input type="text" class="form-input" id="quick-client-address" name="quick-client-address" placeholder="Direccion" style="width: 100%; box-sizing: border-box;">
+                                <input type="text" class="form-input" id="quick-client-address" placeholder="Direccion" style="width: 100%; box-sizing: border-box;">
                             </div>
                             <div style="display: flex; gap: 10px;">
                                 <button type="button" class="btn btn-primary" onclick="App.saveQuickClient()" style="flex: 1; min-width: 0;">
@@ -2572,18 +2677,18 @@ async cleanDuplicatePayments() {
                 });
             }
             
-            // Inicializar select personalizado — destruir instancia previa si existe
-            if (typeof CustomSelect !== 'undefined') {
-                CustomSelect.destroy('sale-client');
-                CustomSelect.destroy('sale-payment-method');
-                CustomSelect.init('sale-client', {
-                    placeholder: 'Seleccionar cliente',
-                    searchPlaceholder: 'Buscar cliente...'
-                });
-                CustomSelect.init('sale-payment-method', {
-                    placeholder: 'Método de pago'
-                });
-            }
+            // Inicializar select personalizado
+            setTimeout(() => {
+                if (typeof CustomSelect !== 'undefined') {
+                    CustomSelect.init('sale-client', {
+                        placeholder: 'Seleccionar cliente',
+                        searchPlaceholder: 'Buscar cliente...'
+                    });
+                    CustomSelect.init('sale-payment-method', {
+                        placeholder: 'Método de pago'
+                    });
+                }
+            }, 100);
         }
     },
 
@@ -2627,13 +2732,13 @@ async cleanDuplicatePayments() {
                                 <i class="fas fa-user-plus"></i> Agregar Cliente Rapido
                             </h4>
                             <div class="form-group" style="margin-bottom: 10px;">
-                                <input type="text" class="form-input" id="quick-client-name-order" name="quick-client-name-order" placeholder="Nombre" style="width: 100%; box-sizing: border-box;">
+                                <input type="text" class="form-input" id="quick-client-name-order" placeholder="Nombre" style="width: 100%; box-sizing: border-box;">
                             </div>
                             <div class="form-group" style="margin-bottom: 10px;">
-                                <input type="tel" class="form-input" id="quick-client-phone-order" name="quick-client-phone-order" placeholder="Telefono" style="width: 100%; box-sizing: border-box;">
+                                <input type="tel" class="form-input" id="quick-client-phone-order" placeholder="Telefono" style="width: 100%; box-sizing: border-box;">
                             </div>
                             <div class="form-group" style="margin-bottom: 12px;">
-                                <input type="text" class="form-input" id="quick-client-address-order" name="quick-client-address-order" placeholder="Direccion" style="width: 100%; box-sizing: border-box;">
+                                <input type="text" class="form-input" id="quick-client-address-order" placeholder="Direccion" style="width: 100%; box-sizing: border-box;">
                             </div>
                             <div style="display: flex; gap: 10px;">
                                 <button type="button" class="btn btn-primary" onclick="App.saveQuickClientOrder()" style="flex: 1; min-width: 0;">
@@ -2698,14 +2803,15 @@ async cleanDuplicatePayments() {
                 });
             }
             
-            // Inicializar select personalizado — destruir instancia previa si existe
-            if (typeof CustomSelect !== 'undefined') {
-                CustomSelect.destroy('order-client');
-                CustomSelect.init('order-client', {
-                    placeholder: 'Seleccionar cliente',
-                    searchPlaceholder: 'Buscar cliente...'
-                });
-            }
+            // Inicializar select personalizado
+            setTimeout(() => {
+                if (typeof CustomSelect !== 'undefined') {
+                    CustomSelect.init('order-client', {
+                        placeholder: 'Seleccionar cliente',
+                        searchPlaceholder: 'Buscar cliente...'
+                    });
+                }
+            }, 100);
         }
     },
 
@@ -3353,13 +3459,14 @@ async cleanDuplicatePayments() {
                 });
             }
             
-            // Inicializar select personalizado — destruir instancia previa si existe
-            if (typeof CustomSelect !== 'undefined') {
-                CustomSelect.destroy('expense-category');
-                CustomSelect.init('expense-category', {
-                    placeholder: 'Seleccionar categoría'
-                });
-            }
+            // Inicializar select personalizado
+            setTimeout(() => {
+                if (typeof CustomSelect !== 'undefined') {
+                    CustomSelect.init('expense-category', {
+                        placeholder: 'Seleccionar categoría'
+                    });
+                }
+            }, 100);
         }
     },
 
@@ -3484,7 +3591,7 @@ async cleanDuplicatePayments() {
                         </div>
                         
                         <div style="margin-bottom: 10px;">
-                            <label for="telegram-token" style="display: block; margin-bottom: 5px; font-weight: 500;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">
                                 <i class="fas fa-key"></i> Bot Token:
                             </label>
                             <input type="text" id="telegram-token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" 
@@ -3492,7 +3599,7 @@ async cleanDuplicatePayments() {
                         </div>
                         
                         <div style="margin-bottom: 15px;">
-                            <label for="telegram-chatid" style="display: block; margin-bottom: 5px; font-weight: 500;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">
                                 <i class="fas fa-user"></i> Chat ID:
                             </label>
                             <input type="text" id="telegram-chatid" placeholder="123456789" 
@@ -4385,30 +4492,87 @@ async cleanDuplicatePayments() {
         if (modal) {
             modal.classList.add('active');
             modal.style.display = 'flex';
-            
-            // Obtener ubicación actual y luego inicializar mapa
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        const lat = position.coords.latitude;
-                        const lng = position.coords.longitude;
-                        setTimeout(() => {
-                            MapModule.initMap(lat, lng);
-                        }, 100);
-                    },
-                    (error) => {
-                        // Si falla, usar ubicación por defecto (Ciudad de México)
-                        console.warn('No se pudo obtener ubicación:', error);
-                        setTimeout(() => {
-                            MapModule.initMap(19.4326, -99.1332);
-                        }, 100);
+
+            // Fallback dinamico: ultima posicion conocida del usuario (no un pais hardcodeado)
+            const getLastKnownFallback = () => {
+                try {
+                    const saved = localStorage.getItem('galloli_last_known_pos');
+                    if (saved) return JSON.parse(saved);
+                } catch(e) {}
+                return null; // sin fallback — el mapa esperara
+            };
+
+            // Wrapper de alta precision con watchPosition para seguimiento en vivo
+            let mapWatchId = null;
+            let mapMarker = null;
+            let mapAccCircle = null;
+            let markerUserMoved = false;
+
+            const initMapWithPos = (lat, lng, accuracy) => {
+                // Guardar como ultima posicion conocida
+                localStorage.setItem('galloli_last_known_pos', JSON.stringify([lat, lng]));
+
+                if (!MapModule.map) {
+                    MapModule.initMap(lat, lng);
+                    // Agregar circulo de precision
+                    setTimeout(() => {
+                        if (typeof L !== 'undefined' && MapModule.map) {
+                            mapAccCircle = L.circle([lat, lng], {
+                                radius: accuracy || 5,
+                                color: '#4CAF50', fillOpacity: 0.1, weight: 1
+                            }).addTo(MapModule.map);
+                            // Marcador arrastrable en mi posicion
+                            mapMarker = L.marker([lat, lng], { draggable: true }).addTo(MapModule.map);
+                            mapMarker.on('dragstart', () => { markerUserMoved = true; });
+                        }
+                    }, 200);
+                } else if (!markerUserMoved && mapMarker) {
+                    // Actualizar posicion del marcador si el usuario no lo movio
+                    mapMarker.setLatLng([lat, lng]);
+                    if (mapAccCircle) {
+                        mapAccCircle.setLatLng([lat, lng]).setRadius(accuracy || 5);
                     }
+                    MapModule.map.panTo([lat, lng]);
+                }
+            };
+
+            // Intentar GPS de alta precision
+            if (navigator.geolocation) {
+                // Leer inmediatamente con alta precision
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        initMapWithPos(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+                    },
+                    (err) => {
+                        console.warn('GPS inicial fallido:', err.message);
+                        // Usar ultima posicion conocida como fallback
+                        const fallback = getLastKnownFallback();
+                        if (fallback) {
+                            MapModule.initMap(fallback[0], fallback[1]);
+                        }
+                        // Si no hay fallback, el mapa se inicializa cuando llegue el watch
+                    },
+                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
                 );
+
+                // Watch en vivo para actualizar mientras el usuario se mueve
+                mapWatchId = navigator.geolocation.watchPosition(
+                    (pos) => {
+                        if (pos.coords.accuracy > 30) return; // ignorar lecturas muy imprecisas
+                        initMapWithPos(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+                    },
+                    (err) => { console.warn('GPS watch error:', err.message); },
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                );
+
+                // Guardar watchId para limpiarlo al cerrar el modal
+                App._mapModalWatchId = mapWatchId;
             } else {
-                // Si no hay geolocalización, usar ubicación por defecto
-                setTimeout(() => {
-                    MapModule.initMap(19.4326, -99.1332);
-                }, 100);
+                // Sin GPS: usar ultima posicion conocida o mostrar mensaje
+                const fallback = getLastKnownFallback();
+                if (fallback) {
+                    setTimeout(() => MapModule.initMap(fallback[0], fallback[1]), 100);
+                }
             }
         }
     },
@@ -4434,7 +4598,13 @@ async cleanDuplicatePayments() {
         if (modal) {
             modal.classList.remove('active');
             modal.style.display = 'none';
-            
+
+            // Limpiar watch GPS del mapa
+            if (App._mapModalWatchId != null) {
+                navigator.geolocation.clearWatch(App._mapModalWatchId);
+                App._mapModalWatchId = null;
+            }
+
             // Limpiar datos del mapa
             const latInput = document.getElementById('map-latitude');
             const lngInput = document.getElementById('map-longitude');
@@ -4465,7 +4635,6 @@ async cleanDuplicatePayments() {
 
         // Cerrar y ELIMINAR modales dinámicos (creados con createElement y appendados al body)
         document.querySelectorAll('.modal').forEach(modal => {
-            // Si el modal fue creado dinámicamente (no es parte del HTML estático), eliminarlo
             if (!modal.id || modal.id === '') {
                 modal.remove();
             } else {
@@ -4483,12 +4652,15 @@ async cleanDuplicatePayments() {
             (position) => {
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
+                // Guardar como ultima posicion conocida
+                localStorage.setItem('galloli_last_known_pos', JSON.stringify([lat, lng]));
                 MapModule.setCurrentLocation(lat, lng);
                 Utils.showNotification('Ubicación actual establecida', 'success', 3000);
             },
             (error) => {
                 Utils.showNotification('No se pudo obtener la ubicación actual', 'error', 5000);
-            }
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
         );
     },
 
@@ -4740,17 +4912,17 @@ async cleanDuplicatePayments() {
                 <div class="modal-body">
                     <form id="edit-expense-form">
                         <div class="form-group">
-                            <label class="form-label" for="edit-expense-description">Descripción</label>
+                            <label class="form-label">Descripción</label>
                             <input type="text" class="form-input" id="edit-expense-description" 
                                    value="${Utils.escapeHtml(expense.description)}" required>
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="edit-expense-amount">Monto</label>
+                            <label class="form-label">Monto</label>
                             <input type="number" step="0.01" min="0.01" class="form-input" 
                                    id="edit-expense-amount" value="${expense.amount}" required>
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="edit-expense-category">Categoría</label>
+                            <label class="form-label">Categoría</label>
                             <select class="form-input" id="edit-expense-category" required>
                                 <option value="insumos" ${expense.category === 'insumos' ? 'selected' : ''}>Insumos</option>
                                 <option value="mano_obra" ${expense.category === 'mano_obra' ? 'selected' : ''}>Mano de Obra</option>
@@ -4760,7 +4932,7 @@ async cleanDuplicatePayments() {
                             </select>
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="edit-expense-date">Fecha</label>
+                            <label class="form-label">Fecha</label>
                             <input type="date" class="form-input" id="edit-expense-date" 
                                    value="${expense.date}" required>
                         </div>
@@ -4803,7 +4975,7 @@ async cleanDuplicatePayments() {
         if (!expense) return;
 
         const confirmed = await Utils.showDangerConfirm(
-            `¿Eliminar el gasto "${Utils.escapeHtml(expense.description)}" por ${Utils.formatCurrency(expense.amount)}?`,
+            `¿Eliminar el gasto "${expense.description}" por ${Utils.formatCurrency(expense.amount)}?`,
             'Eliminar Gasto',
             'Eliminar'
         );
@@ -5072,7 +5244,7 @@ async cleanDuplicatePayments() {
 
     async clearAllData() {
         const confirmed = await Utils.showDangerConfirm(
-            ' Esto eliminarx TODOS los datos de la aplicación. Esta acción NO se puede deshacer.',
+            ' Esto eliminará TODOS los datos de la aplicación. Esta acción NO se puede deshacer.',
             ' Eliminar Todos los Datos',
             'Continuar'
         );
@@ -5233,7 +5405,7 @@ async cleanDuplicatePayments() {
     // NUEVO: Limpiar configuración de Telegram
     async clearTelegramConfig() {
         const confirmed = await Utils.showDangerConfirm(
-            'Se eliminarx la configuración de Telegram. Podrxs volver a configurarla cuando quieras.',
+            'Se eliminará la configuración de Telegram. Podrás volver a configurarla cuando quieras.',
             'Eliminar Configuración de Telegram',
             'Eliminar'
         );
@@ -5299,13 +5471,13 @@ async cleanDuplicatePayments() {
                     </p>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                         <div class="form-group">
-                            <label class="form-label" for="diezmo-percent">Diezmo (%)</label>
+                            <label class="form-label">Diezmo (%)</label>
                             <input type="number" step="0.1" min="0" max="100" class="form-input" 
                                    id="diezmo-percent" value="${DiezmosModule.config.diezmoPercent}" 
                                    oninput="App.updateDiezmosPreview(); App.autoSaveDiezmosConfig()">
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="ofrenda-percent">Ofrenda (%)</label>
+                            <label class="form-label">Ofrenda (%)</label>
                             <input type="number" step="0.1" min="0" max="100" class="form-input" 
                                    id="ofrenda-percent" value="${DiezmosModule.config.ofrendaPercent}" 
                                    oninput="App.updateDiezmosPreview(); App.autoSaveDiezmosConfig()">
@@ -5646,6 +5818,64 @@ async cleanDuplicatePayments() {
     }
 };
 
+// ─── Toggle de venta automática (§3.4) ───────────────────────────────────────
+
+/**
+ * Maneja el toggle "Auto" en la página de ventas (APK nativo).
+ * Activa/desactiva el motor de venta automática y actualiza el chip del header.
+ */
+App._onAutoSaleToggle = function(enabled) {
+    if (enabled) {
+        localStorage.setItem('autoSale.enabled', '1');
+        // Activar motor si está disponible
+        if (typeof initNativeAutoSale === 'function' && !window._autoSaleInitialized) {
+            initNativeAutoSale({
+                mode: 'auto',
+                minWeightLb: 3.50,
+                stableReadings: 3,
+                stableWindowMs: 2000,
+                minIntervalSamePlaceMs: 60000,
+                geofenceRadiusM: 150,
+                sriEnabled: false
+            });
+            window._autoSaleInitialized = true;
+        }
+        Utils.showNotification('Venta automática activada', 'success', 2500);
+    } else {
+        localStorage.removeItem('autoSale.enabled');
+        Utils.showNotification('Venta automática desactivada', 'info', 2500);
+    }
+    App._updateAutoSaleChip(enabled);
+};
+
+/**
+ * Actualiza el chip indicador del header según el estado del toggle Auto.
+ * @param {boolean} on - true = activo (verde pulsante), false = inactivo (gris)
+ */
+App._updateAutoSaleChip = function(on) {
+    const chip = document.getElementById('autoSaleChip');
+    if (!chip) return;
+    chip.hidden = false;
+    if (on) {
+        chip.className = 'chip chip--on';
+    } else {
+        chip.className = 'chip chip--off';
+    }
+};
+
+// Inicializar chip al cargar la app (APK nativo)
+(function() {
+    var isNative = window.Capacitor &&
+                   window.Capacitor.isNativePlatform &&
+                   window.Capacitor.isNativePlatform();
+    if (!isNative) return;
+    var enabled = localStorage.getItem('autoSale.enabled') === '1';
+    // Esperar a que el DOM esté listo
+    document.addEventListener('DOMContentLoaded', function() {
+        App._updateAutoSaleChip(enabled);
+    });
+})();
+
 // Suprimir errores de extensiones globalmente
 window.addEventListener('unhandledrejection', (e) => {
     if (e.reason && e.reason.message && e.reason.message.includes('Could not establish connection')) {
@@ -5717,7 +5947,7 @@ App.startChainWeighing = function() {
 
                 <!-- Cliente activo (se selecciona al inicio) -->
                 <div style="margin-bottom:16px;">
-                    <label class="form-label" for="chain-client-search" style="font-weight:600;"><i class="fas fa-user"></i> Cliente activo</label>
+                    <label class="form-label" style="font-weight:600;"><i class="fas fa-user"></i> Cliente activo</label>
                     <input type="text" class="form-input" id="chain-client-search"
                            placeholder="Buscar cliente..." autocomplete="off"
                            oninput="App.filterChainClients(this.value)"
@@ -5735,11 +5965,11 @@ App.startChainWeighing = function() {
                 <!-- Cantidad y pago -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
                     <div class="form-group" style="margin:0;">
-                        <label class="form-label" for="chain-quantity"><i class="fas fa-egg"></i> Pollos</label>
+                        <label class="form-label"><i class="fas fa-egg"></i> Pollos</label>
                         <input type="number" class="form-input" id="chain-quantity" min="1" value="1">
                     </div>
                     <div class="form-group" style="margin:0;">
-                        <label class="form-label" for="chain-payment"><i class="fas fa-credit-card"></i> Pago</label>
+                        <label class="form-label"><i class="fas fa-credit-card"></i> Pago</label>
                         <select class="form-input" id="chain-payment">
                             <option value="cash">Efectivo</option>
                             <option value="credit">Credito</option>
@@ -5958,7 +6188,7 @@ App._autoRegisterChainSale = function(weight) {
     const isPaid = payment === 'cash';
 
     const sale = SalesModule.addSale(clientId, weight, quantity, state.salePrice, null, isPaid);
-    ClientsModule.updateClientStats(clientId, weight, quantity, sale.total);
+    // NO llamar ClientsModule.updateClientStats — SalesModule.addSale ya lo hace
 
     const client = ClientsModule.getClientById(clientId);
 
@@ -6021,6 +6251,8 @@ App._startChainGps = function() {
                 const loc = await plugin.getLocation();
                 const gpsIndicator = document.getElementById('chain-gps-indicator');
                 if (loc && loc.hasLocation) {
+                    // Guardar como ultima posicion conocida
+                    localStorage.setItem('galloli_last_known_pos', JSON.stringify([loc.lat, loc.lng]));
                     onLocation(loc.lat, loc.lng);
                 } else {
                     if (gpsIndicator) {
@@ -6050,7 +6282,7 @@ App._startChainGps = function() {
                     gpsIndicator.style.display = 'block';
                 }
             },
-            { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
         );
         // Leer inmediatamente
         navigator.geolocation.getCurrentPosition(
@@ -6063,7 +6295,7 @@ App._startChainGps = function() {
                     gpsIndicator.style.display = 'block';
                 }
             },
-            { enableHighAccuracy: true, timeout: 8000 }
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
         );
     } else {
         const gpsIndicator = document.getElementById('chain-gps-indicator');
@@ -6086,6 +6318,9 @@ App._stopChainGps = function() {
 
 // Seleccionar automaticamente el cliente mas cercano segun GPS
 App._chainAutoSelectClient = function(lat, lng) {
+    // Guardar como ultima posicion conocida (fallback para el mapa)
+    localStorage.setItem('galloli_last_known_pos', JSON.stringify([lat, lng]));
+
     const gpsIndicator = document.getElementById('chain-gps-indicator');
     const debugEl = document.getElementById('chain-gps-debug');
 
@@ -6211,33 +6446,43 @@ App._processPendingNativeSales = async function() {
                 const client = ClientsModule.getClientById(clientId);
                 if (!client) { console.warn('Cliente no encontrado:', s.clientId); continue; }
 
+                // Ventas background siempre a credito — SalesModule.addSale ya llama updateClientStats
                 const sale = SalesModule.addSale(
                     clientId,
                     s.weight,
                     s.quantity || 1,
                     s.salePrice,
                     null,
-                    s.isPaid !== false
+                    false,  // isPaid = false (credito)
+                    0       // initialPayment = 0
                 );
-                ClientsModule.updateClientStats(clientId, s.weight, s.quantity || 1, sale.total);
+                // NO llamar ClientsModule.updateClientStats aqui — SalesModule.addSale ya lo hace
+                sale.autoGenerated = true;
+                sale.source = s.source || 'background_auto';
+                sale.nativeTimestamp = s.timestamp || Date.now();
+                sale.lastModified = Date.now();
+                await SalesModule.saveSales();
                 processed++;
 
-                console.log('✅ Venta background procesada:', client.name, s.weight + 'lb', Utils.formatCurrency(sale.total));
+                console.log('✅ Venta background (credito):', client.name, s.weight + 'lb', Utils.formatCurrency(sale.total));
             } catch(e) {
                 console.error('Error procesando venta background:', e);
             }
         }
 
         if (processed > 0) {
-            // Limpiar cola en el servicio nativo
             await plugin.clearPendingSales();
 
+            // Actualizar badge de creditos
+            if (typeof CreditosModule !== 'undefined' && CreditosModule.updateCreditBadges) {
+                CreditosModule.updateCreditBadges();
+            }
+
             Utils.showNotification(
-                processed + ' venta' + (processed > 1 ? 's' : '') + ' registrada' + (processed > 1 ? 's' : '') + ' en segundo plano',
+                processed + ' venta' + (processed > 1 ? 's' : '') + ' a credito registrada' + (processed > 1 ? 's' : '') + ' en segundo plano',
                 'success', 4000
             );
 
-            // Recargar datos para reflejar las nuevas ventas
             await App.loadAllData();
             App.loadPage(App.currentPage);
         }
@@ -6335,6 +6580,54 @@ App._registerNativeFcmToken = async function() {
 
 // ─── Fin ventas en segundo plano ─────────────────────────────────────────────
 
+/**
+ * Cede el control BLE al servicio nativo cuando la app va a background.
+ * El servicio nativo reconecta la balanza y registra ventas automaticamente.
+ */
+App._handoffBleToNativeService = async function() {
+    try {
+        const isNative = window.Capacitor &&
+            window.Capacitor.isNativePlatform &&
+            window.Capacitor.isNativePlatform();
+        if (!isNative) return;
+
+        const plugin = window.Capacitor.Plugins && window.Capacitor.Plugins.BleForeground;
+        if (!plugin) return;
+
+        // Sincronizar clientes y precio antes de ceder control
+        App._syncDataToNativeService();
+
+        // Cerrar modal si esta activo para no dejar chain_modal_active=true
+        if (document.getElementById('chain-weighing-modal')) {
+            App.stopChainWeighing();
+        }
+
+        // Si JS tiene conexion BLE abierta, guardar device ID y desconectar
+        if (window.BluetoothScale && BluetoothScale.isConnected) {
+            try {
+                const deviceId = BluetoothScale._nativeDeviceId || BluetoothScale.activeScaleId;
+                if (deviceId && plugin.saveBleDeviceId) {
+                    await plugin.saveBleDeviceId({ deviceId: String(deviceId) });
+                }
+                await BluetoothScale.disconnect();
+            } catch(e) {
+                console.warn('[Handoff] No se pudo desconectar BLE JS:', e.message);
+            }
+        }
+
+        // Notificar al servicio que tome el control
+        if (plugin.releaseBleToService) {
+            await plugin.releaseBleToService();
+        } else if (plugin.notifyJsDisconnected) {
+            await plugin.notifyJsDisconnected({});
+        }
+
+        console.log('[Handoff] BLE cedido al servicio nativo');
+    } catch(e) {
+        console.warn('[Handoff] Error cediendo BLE al servicio nativo:', e.message);
+    }
+};
+
 App.updateChainPreview = function() {
     const weightEl = document.getElementById('chain-manual-weight');
     const unitEl = document.getElementById('chain-manual-unit');
@@ -6405,7 +6698,7 @@ App.confirmChainSale = function() {
     const isPaid = payment === 'cash';
 
     const sale = SalesModule.addSale(clientId, weight, quantity, salePrice, null, isPaid);
-    ClientsModule.updateClientStats(clientId, weight, quantity, sale.total);
+    // NO llamar ClientsModule.updateClientStats — SalesModule.addSale ya lo hace
 
     // Actualizar resumen
     const salesCount = document.getElementById('chain-sales-count');
@@ -6483,7 +6776,7 @@ App.startGeoChain = function() {
 
                 <!-- Override manual de cliente -->
                 <div style="margin-bottom:16px;">
-                    <label class="form-label" for="geo-client-override" style="font-size:0.85rem;"><i class="fas fa-user-edit"></i> Override manual de cliente</label>
+                    <label class="form-label" style="font-size:0.85rem;"><i class="fas fa-user-edit"></i> Override manual de cliente</label>
                     <select class="form-input" id="geo-client-override" onchange="App._geoChainOverrideClient(this.value)" style="font-size:0.9rem;">
                         <option value="">-- Auto por GPS --</option>
                         ${ClientsModule.clients.filter(c => c.isActive !== false).map(c =>

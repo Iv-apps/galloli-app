@@ -1,5 +1,5 @@
 {
-  "version": "7.20.46",
-  "buildDate": "2026-10-05",
-  "description": "fix: auditoria TWA - RutasModule.generarRutaOptima/limpiarMapa, escapeHtml en datos de usuario, cola offline descarta 401/403, mojibake y emojis"
+  "version": "7.20.47",
+  "buildDate": "2026-10-06",
+  "description": "feat: paridad con APK nativo - permisos por rol, recuperacion de contrasena, buscador de creditos, GPS de alta precision y CSS responsive"
 }

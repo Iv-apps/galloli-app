@@ -7,16 +7,34 @@ const ClientsModule = {
     },
 
     addClient(name, phone, address, locationData, coordinates = null) {
+        // Validar coordenadas: rechazar Null Island (0,0) o fuera de rango
+        let validCoords = null;
+        if (coordinates) {
+            const lat = parseFloat(coordinates.lat || coordinates.latitude);
+            const lng = parseFloat(coordinates.lng || coordinates.longitude);
+            if (!isNaN(lat) && !isNaN(lng) &&
+                !(lat === 0 && lng === 0) &&
+                lat >= -90 && lat <= 90 &&
+                lng >= -180 && lng <= 180) {
+                validCoords = { lat, lng };
+            } else {
+                console.warn('[ClientsModule] Coordenadas invalidas rechazadas:', coordinates);
+            }
+        } else if (locationData && locationData.latitude != null && locationData.longitude != null) {
+            const lat = parseFloat(locationData.latitude);
+            const lng = parseFloat(locationData.longitude);
+            if (!isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0)) {
+                validCoords = { lat, lng };
+            }
+        }
+
         const client = {
             id: Date.now(),
             name,
             phone,
             address,
             location: locationData.address || locationData,
-            coordinates: coordinates || {
-                lat: locationData.latitude,
-                lng: locationData.longitude
-            },
+            coordinates: validCoords,
             timestamp: new Date().toISOString(),
             lastModified: Date.now(),
             date: Utils.formatDate(),
@@ -500,11 +518,11 @@ const ClientsModule = {
                     <div id="edit-location-map" style="height: 400px; width: 100%; margin-bottom: 15px;"></div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
                         <div>
-                            <label for="map-edit-lat">Latitud:</label>
+                            <label>Latitud:</label>
                             <input type="number" step="any" id="map-edit-lat" class="form-input" readonly>
                         </div>
                         <div>
-                            <label for="map-edit-lng">Longitud:</label>
+                            <label>Longitud:</label>
                             <input type="number" step="any" id="map-edit-lng" class="form-input" readonly>
                         </div>
                     </div>
@@ -695,7 +713,7 @@ const ClientsModule = {
         }
     },
 
-    // Obtener posicion actual
+    // Obtener posicion actual con alta precision
     getCurrentPosition() {
         return new Promise((resolve, reject) => {
             if (!navigator.geolocation) {
@@ -708,8 +726,8 @@ const ClientsModule = {
                 reject,
                 {
                     enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 300000 // 5 minutos
+                    timeout: 15000,
+                    maximumAge: 0 // Siempre pedir posicion fresca
                 }
             );
         });
@@ -1353,7 +1371,8 @@ const SalesModule = {
                             <i class="fas fa-edit"></i> Editar
                         </button>
                         <button class="btn btn-danger" style="padding: 5px 10px; font-size: 0.8rem;" 
-                                onclick="SalesModule.showDeleteModal(${sale.id})">
+                                onclick="SalesModule.showDeleteModal(${sale.id})"
+                                ${!Perm.can('sales.delete') ? 'style="display:none"' : ''}>
                             <i class="fas fa-trash"></i> Eliminar
                         </button>
                     </div>
@@ -1405,7 +1424,7 @@ const SalesModule = {
                                    id="edit-sale-price" value="${sale.price}" required>
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="edit-sale-cost">
+                            <label class="form-label">
                                 Costo por lb ($)
                                 <i class="fas fa-info-circle" style="color: var(--gray); cursor: help;" 
                                    title="Opcional: Para pollos pelados con costo diferente a la merma"></i>
@@ -1621,23 +1640,26 @@ const SalesModule = {
                 await ClientsModule.saveClients();
             }
 
-            // 3. Guardar en IndexedDB (con deleted:true)
+            // 3. Guardar en IndexedDB (con deleted:true, para que el merge local lo detecte)
             await this.saveSales();
 
             // 4. CRÍTICO: Notificar al servidor con action='delete'
-            //    Sin esto, el servidor devuelve la venta en el próximo sync y "resurge".
-            this.addPendingDeletion(saleId);
+            //    Esto hace que D1 ponga deleted=1, y /api/sync/full nunca lo devuelve de vuelta.
+            //    Sin este paso, el servidor devuelve la venta en el próximo sync y "resurge".
+            this.addPendingDeletion(saleId); // guardar en localStorage como fallback offline
             if (typeof window.SyncEngine !== 'undefined' &&
                 window.SyncEngine &&
                 typeof window.SyncEngine.notifyChange === 'function') {
                 try {
                     await window.SyncEngine.notifyChange('sales', String(saleId), 'delete');
+                    // Limpiar la cola offline si el envío fue exitoso
                     const pending = JSON.parse(localStorage.getItem('pendingSalesDeletions') || '[]');
                     const filtered = pending.filter(id => String(id) !== String(saleId));
                     localStorage.setItem('pendingSalesDeletions', JSON.stringify(filtered));
                     console.log('✅ Eliminación confirmada en servidor:', saleId);
                 } catch (syncErr) {
-                    console.warn('⚠️ Eliminación en cola offline:', saleId, syncErr.message);
+                    console.warn('⚠️ Eliminación en cola para siguiente sync:', saleId, syncErr.message);
+                    // La función addPendingDeletion ya lo guardó — se enviará en syncPendingDeletions()
                 }
             }
 
@@ -1788,7 +1810,7 @@ const SalesModule = {
         if (!pendingDeletions.includes(saleId)) {
             pendingDeletions.push(saleId);
             localStorage.setItem('pendingSalesDeletions', JSON.stringify(pendingDeletions));
-            console.log(`Eliminacion pendiente guardada: ${saleId}`);
+            console.log(`🗑️ Eliminacion pendiente guardada: ${saleId}`);
         }
     },
 
@@ -1802,20 +1824,20 @@ const SalesModule = {
             const pendingDeletions = JSON.parse(localStorage.getItem('pendingSalesDeletions') || '[]');
             
             if (pendingDeletions.length > 0) {
-                console.log(`Sincronizando ${pendingDeletions.length} eliminaciones pendientes...`);
+                console.log(`🔁 Sincronizando ${pendingDeletions.length} eliminaciones pendientes...`);
                 
                 for (const saleId of pendingDeletions) {
                     try {
                         await window.SyncEngine.notifyChange('sales', saleId, 'delete');
-                        console.log(`Eliminacion sincronizada: ${saleId}`);
+                        console.log(`✅ Eliminacion sincronizada: ${saleId}`);
                     } catch (error) {
-                        console.error(`Error sincronizando eliminacion ${saleId}:`, error);
+                        console.error(`❌ Error sincronizando eliminacion ${saleId}:`, error);
                     }
                 }
                 
                 // Limpiar eliminaciones pendientes
                 localStorage.removeItem('pendingSalesDeletions');
-                console.log('Todas las eliminaciones pendientes sincronizadas');
+                console.log('✅ Todas las eliminaciones pendientes sincronizadas');
             }
         }
     }
@@ -2575,10 +2597,11 @@ const AccountingModule = {
                                 style="padding: 5px 10px; font-size: 0.8rem;">
                             <i class="fas fa-edit"></i>
                         </button>
+                        ${Perm.can('expenses.delete') ? `
                         <button class="btn btn-danger" onclick="App.deleteExpense(${expense.id})" 
                                 style="padding: 5px 10px; font-size: 0.8rem;">
                             <i class="fas fa-trash"></i>
-                        </button>
+                        </button>` : ''}
                     </div>
                 </div>
             `;
@@ -2677,7 +2700,7 @@ const DiezmosModule = {
         
         if (registrosCreados > 0) {
             await this.saveRecords();
-            console.log(`Se calcularon automaticamente ${registrosCreados} registros de diezmos pendientes`);
+            console.log(`✅ Se calcularon automaticamente ${registrosCreados} registros de diezmos pendientes`);
         }
     },
 
@@ -3135,7 +3158,7 @@ const PaymentHistoryModule = {
     // YA NO se necesitan estas funciones - los datos vienen de sale.paymentHistory
     async init() {
         // No hacer nada - los datos se construyen dinamicamente
-        console.log('PaymentHistoryModule inicializado (modo dinamico desde ventas)');
+        console.log('✅ PaymentHistoryModule inicializado (modo dinamico desde ventas)');
     },
 
     exportPayments(clientId = null) {
@@ -3322,6 +3345,7 @@ const RutasModule = {
 
             const ordenados = this.optimizarRuta(clientes);
 
+            // Quitar marcadores/linea anteriores sin avisar
             this.limpiarMapa(true);
 
             const puntos = [];
@@ -3661,14 +3685,14 @@ const BackupModule = {
                 if (credentials.botToken && credentials.chatId) {
                     this.telegramBotToken = credentials.botToken;
                     this.telegramChatId = credentials.chatId;
-                    console.log('Credenciales cargadas desde IndexedDB');
+                    console.log('✅ Credenciales cargadas desde IndexedDB');
                 }
             } catch (error) {
                 console.error('Error cargando desde IndexedDB:', error);
             }
         }
         
-        console.log('Credenciales de Telegram cargadas:', {
+        console.log('🔐 Credenciales de Telegram cargadas:', {
             hasToken: !!this.telegramBotToken,
             hasChatId: !!this.telegramChatId
         });
@@ -3969,74 +3993,132 @@ const CloudSyncModule = {
     },
     
     renderLoginPage() {
+        const lastEmail = localStorage.getItem('galloli_last_email') || '';
         return `
-            <div class="page-header">
-                <h1><i class="fas fa-cloud"></i> Sincronizacion en la Nube</h1>
-                <p>Accede a tus datos desde cualquier dispositivo</p>
-            </div>
-            
-            <div class="login-container" style="max-width: 500px; margin: 2rem auto; padding: 2rem; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <div style="text-align: center; margin-bottom: 2rem;">
-                    <i class="fas fa-cloud" style="font-size: 4rem; color: #2196F3; margin-bottom: 1rem;"></i>
-                    <h2 style="margin: 0 0 0.5rem 0;">Bienvenido a GallOli Cloud</h2>
-                    <p style="color: #666; margin: 0;">Sincroniza tus datos en tiempo real</p>
+            <div style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1rem;background:linear-gradient(135deg,#e8f5e9,#f1f8e9);">
+                <!-- Logo -->
+                <div style="text-align:center;margin-bottom:1.5rem;">
+                    <div style="width:80px;height:80px;background:linear-gradient(135deg,#4CAF50,#388E3C);border-radius:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 0.75rem;box-shadow:0 4px 16px rgba(76,175,80,.35);">
+                        <i class="fas fa-leaf" style="font-size:2.2rem;color:white;"></i>
+                    </div>
+                    <h1 style="margin:0;font-size:1.8rem;color:#2e7d32;font-weight:700;">GallOli</h1>
+                    <p style="margin:.25rem 0 0;color:#666;font-size:.9rem;">Gestiona tu negocio sin conexión y en la nube</p>
                 </div>
-                
-                <!-- Tabs -->
-                <div class="login-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 2rem; border-bottom: 2px solid #eee;">
-                    <button class="login-tab active" onclick="CloudSyncModule.switchTab('telegram')" style="flex: 1; padding: 1rem; border: none; background: none; cursor: pointer; border-bottom: 3px solid #2196F3; color: #2196F3; font-weight: bold;">
-                        <i class="fab fa-telegram"></i> Telegram
-                    </button>
-                    <button class="login-tab" onclick="CloudSyncModule.switchTab('email')" style="flex: 1; padding: 1rem; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; color: #666;">
-                        <i class="fas fa-envelope"></i> Email
-                    </button>
-                </div>
-                
-                <!-- Telegram Login -->
-                <div class="login-form" id="telegram-form">
-                    <div style="margin-bottom: 1.5rem;">
-                        <label for="telegram-id" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Tu ID de Telegram</label>
-                        <input type="text" id="telegram-id" placeholder="Ej: 123456789" style="width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem;">
-                        <small style="color: #666; display: block; margin-top: 0.5rem;">
-                            <i class="fas fa-info-circle"></i> Envia /start a @userinfobot para obtener tu ID
+
+                <!-- Card -->
+                <div style="width:min(96vw,440px);background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);overflow:hidden;">
+
+                    <!-- Tabs Login / Crear cuenta -->
+                    <div style="display:flex;border-bottom:2px solid #eee;">
+                        <button id="tab-login" onclick="CloudSyncModule._switchLoginMode('login')"
+                                style="flex:1;padding:1rem;border:none;background:none;cursor:pointer;font-weight:700;color:#4CAF50;border-bottom:3px solid #4CAF50;font-size:.95rem;">
+                            Iniciar sesión
+                        </button>
+                        <button id="tab-register" onclick="CloudSyncModule._switchLoginMode('register')"
+                                style="flex:1;padding:1rem;border:none;background:none;cursor:pointer;font-weight:600;color:#999;border-bottom:3px solid transparent;font-size:.95rem;">
+                            Crear cuenta
+                        </button>
+                    </div>
+
+                    <div style="padding:1.5rem;">
+                        <!-- Segmented: Telegram / Email -->
+                        <div style="display:flex;background:#f5f5f5;border-radius:8px;padding:3px;margin-bottom:1.25rem;">
+                            <button id="seg-telegram" onclick="CloudSyncModule.switchTab('telegram')"
+                                    style="flex:1;padding:.6rem;border:none;border-radius:6px;background:white;cursor:pointer;font-weight:600;font-size:.85rem;box-shadow:0 1px 4px rgba(0,0,0,.1);">
+                                <i class="fab fa-telegram" style="color:#2196F3;"></i> Telegram
+                            </button>
+                            <button id="seg-email" onclick="CloudSyncModule.switchTab('email')"
+                                    style="flex:1;padding:.6rem;border:none;border-radius:6px;background:none;cursor:pointer;font-weight:600;font-size:.85rem;color:#666;">
+                                <i class="fas fa-envelope"></i> Email
+                            </button>
+                        </div>
+
+                        <!-- Telegram Form -->
+                        <div class="login-form" id="telegram-form">
+                            <div style="margin-bottom:1rem;">
+                                <label for="telegram-id" style="display:block;margin-bottom:.4rem;font-weight:600;font-size:.9rem;">Tu ID de Telegram</label>
+                                <input type="text" id="telegram-id" name="telegram-id" placeholder="Ej: 123456789"
+                                       class="form-control" inputmode="numeric">
+                                <small style="color:#666;display:block;margin-top:.35rem;font-size:.8rem;">
+                                    <i class="fas fa-info-circle"></i> Envía /start a @userinfobot para obtener tu ID
+                                </small>
+                            </div>
+                            <div id="telegram-code-section" style="display:none;margin-bottom:1rem;">
+                                <label for="telegram-code" style="display:block;margin-bottom:.4rem;font-weight:600;font-size:.9rem;">Código de Verificación</label>
+                                <input type="text" id="telegram-code" name="telegram-code" placeholder="123456" maxlength="6"
+                                       class="form-control" inputmode="numeric"
+                                       style="font-size:1.5rem;text-align:center;letter-spacing:.5rem;">
+                                <small style="color:#666;display:block;margin-top:.35rem;font-size:.8rem;">
+                                    <i class="fas fa-info-circle"></i> Revisa tu Telegram, te enviamos un código
+                                </small>
+                            </div>
+                            <button id="telegram-login-btn" onclick="CloudSyncModule.handleTelegramLogin()"
+                                    style="width:100%;padding:1rem;background:linear-gradient(135deg,#2196F3,#1976D2);color:white;border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.5rem;">
+                                <i class="fab fa-telegram"></i> Continuar con Telegram
+                            </button>
+                        </div>
+
+                        <!-- Email Form -->
+                        <div class="login-form" id="email-form" style="display:none;">
+                            <div style="margin-bottom:1rem;">
+                                <label for="email-input" style="display:block;margin-bottom:.4rem;font-weight:600;font-size:.9rem;">Email</label>
+                                <input type="email" id="email-input" name="email" placeholder="tu@email.com"
+                                       class="form-control" inputmode="email" autocomplete="email"
+                                       value="${Utils.escapeHtml(lastEmail)}">
+                                <div id="email-error" style="color:#f44336;font-size:.8rem;margin-top:.25rem;display:none;"></div>
+                            </div>
+                            <div style="margin-bottom:.75rem;">
+                                <label for="password-input" style="display:block;margin-bottom:.4rem;font-weight:600;font-size:.9rem;">Contraseña</label>
+                                <div style="position:relative;">
+                                    <input type="password" id="password-input" name="password" placeholder="••••••••"
+                                           class="form-control" autocomplete="current-password"
+                                           style="padding-right:3rem;">
+                                    <button type="button" onclick="CloudSyncModule._togglePasswordVisibility()"
+                                            style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#666;min-height:auto;padding:.25rem;">
+                                        <i id="pwd-eye-icon" class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                                <div id="password-error" style="color:#f44336;font-size:.8rem;margin-top:.25rem;display:none;"></div>
+                            </div>
+
+                            <!-- Mantener sesión -->
+                            <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem;cursor:pointer;font-size:.9rem;">
+                                <input type="checkbox" id="keep-session" style="width:16px;height:16px;min-height:auto;">
+                                Mantener sesión iniciada
+                            </label>
+
+                            <!-- Botones login/register -->
+                            <div id="login-buttons">
+                                <button id="email-login-btn" onclick="CloudSyncModule.handleEmailLogin()"
+                                        style="width:100%;padding:1rem;background:linear-gradient(135deg,#4CAF50,#388E3C);color:white;border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;margin-bottom:.75rem;display:flex;align-items:center;justify-content:center;gap:.5rem;">
+                                    <i class="fas fa-sign-in-alt"></i> <span id="login-btn-text">Iniciar Sesión</span>
+                                </button>
+                                <button id="email-register-btn" onclick="CloudSyncModule.handleEmailRegister()"
+                                        style="width:100%;padding:1rem;background:white;color:#4CAF50;border:2px solid #4CAF50;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;display:none;align-items:center;justify-content:center;gap:.5rem;">
+                                    <i class="fas fa-user-plus"></i> Crear Cuenta
+                                </button>
+                            </div>
+
+                            <!-- Olvidé contraseña -->
+                            <div id="forgot-section" style="text-align:center;margin-top:.75rem;">
+                                <button onclick="CloudSyncModule._showForgotPassword()"
+                                        style="background:none;border:none;color:#2196F3;cursor:pointer;font-size:.85rem;text-decoration:underline;min-height:auto;padding:.25rem;">
+                                    ¿Olvidaste tu contraseña?
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Mensaje de estado -->
+                        <div id="login-message" style="margin-top:1rem;padding:1rem;border-radius:8px;display:none;font-size:.9rem;"></div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding:.75rem 1.5rem;background:#f9f9f9;border-top:1px solid #eee;text-align:center;">
+                        <small style="color:#999;font-size:.75rem;">
+                            <i class="fas fa-lock"></i> Tus datos se guardan cifrados localmente
                         </small>
                     </div>
-                    
-                    <div id="telegram-code-section" style="display: none; margin-bottom: 1.5rem;">
-                        <label for="telegram-code" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Codigo de Verificacion</label>
-                        <input type="text" id="telegram-code" placeholder="123456" maxlength="6" style="width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1.5rem; text-align: center; letter-spacing: 0.5rem;">
-                        <small style="color: #666; display: block; margin-top: 0.5rem;">
-                            <i class="fas fa-info-circle"></i> Revisa tu Telegram, te enviamos un codigo
-                        </small>
-                    </div>
-                    
-                    <button id="telegram-login-btn" onclick="CloudSyncModule.handleTelegramLogin()" style="width: 100%; padding: 1rem; background: linear-gradient(135deg, #2196F3, #1976D2); color: white; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer;">
-                        <i class="fab fa-telegram"></i> Continuar con Telegram
-                    </button>
                 </div>
-                
-                <!-- Email Login -->
-                <div class="login-form" id="email-form" style="display: none;">
-                    <div style="margin-bottom: 1.5rem;">
-                        <label for="email-input" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Email</label>
-                        <input type="email" id="email-input" placeholder="tu@email.com" style="width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem;">
-                    </div>
-                    
-                    <div style="margin-bottom: 1.5rem;">
-                        <label for="password-input" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Contrasena</label>
-                        <input type="password" id="password-input" placeholder="........" style="width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem;">
-                    </div>
-                    
-                    <button onclick="CloudSyncModule.handleEmailLogin()" style="width: 100%; padding: 1rem; background: linear-gradient(135deg, #4CAF50, #388E3C); color: white; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-bottom: 1rem;">
-                        <i class="fas fa-sign-in-alt"></i> Iniciar Sesion
-                    </button>
-                    
-                    <button onclick="CloudSyncModule.handleEmailRegister()" style="width: 100%; padding: 1rem; background: white; color: #4CAF50; border: 2px solid #4CAF50; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer;">
-                        <i class="fas fa-user-plus"></i> Crear Cuenta
-                    </button>
-                </div>
-                
-                <div id="login-message" style="margin-top: 1rem; padding: 1rem; border-radius: 8px; display: none;"></div>
             </div>
         `;
     },
@@ -4044,25 +4126,25 @@ const CloudSyncModule = {
     renderSyncPage() {
         const user = window.AuthManager.user;
         const business = window.AuthManager.business;
-        const isAdmin = ['super_admin', 'admin'].includes(user.role);
+        const isAdmin = (typeof Perm !== 'undefined') ? Perm.can('users.manage') : ['super_admin', 'admin'].includes(user.role);
         
         return `
             <div class="page-header">
-                <h1><i class="fas fa-cloud"></i> Sincronizacion en la Nube</h1>
+                <h1><i class="fas fa-cloud"></i> Sincronización en la Nube</h1>
                 <p>Conectado como ${Utils.escapeHtml(user.name)}</p>
             </div>
             
             <div style="max-width: 1000px; margin: 2rem auto;">
                 <!-- Tabs de navegacion -->
-                <div style="display: flex; gap: 0.5rem; margin-bottom: 2rem; border-bottom: 2px solid #eee; background: white; padding: 1rem; border-radius: 12px 12px 0 0;">
-                    <button class="sync-tab active" onclick="CloudSyncModule.switchSyncTab('account')" style="padding: 0.75rem 1.5rem; border: none; background: none; cursor: pointer; border-bottom: 3px solid #2196F3; color: #2196F3; font-weight: bold;">
+                <div class="tabs-bar" style="margin-bottom: 2rem; border-bottom: 2px solid #eee; background: white; padding: 1rem; border-radius: 12px 12px 0 0;">
+                    <button class="sync-tab active" onclick="CloudSyncModule.switchSyncTab('account')" style="padding: 0.75rem 1.25rem; border: none; background: none; cursor: pointer; border-bottom: 3px solid #2196F3; color: #2196F3; font-weight: bold;">
                         <i class="fas fa-user"></i> Mi Cuenta
                     </button>
                     ${isAdmin ? `
-                    <button class="sync-tab" onclick="CloudSyncModule.switchSyncTab('users')" style="padding: 0.75rem 1.5rem; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; color: #666;">
+                    <button class="sync-tab" onclick="CloudSyncModule.switchSyncTab('users')" style="padding: 0.75rem 1.25rem; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; color: #666;">
                         <i class="fas fa-users"></i> Usuarios
                     </button>
-                    <button class="sync-tab" onclick="CloudSyncModule.switchSyncTab('invitations')" style="padding: 0.75rem 1.5rem; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; color: #666;">
+                    <button class="sync-tab" onclick="CloudSyncModule.switchSyncTab('invitations')" style="padding: 0.75rem 1.25rem; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; color: #666;">
                         <i class="fas fa-ticket-alt"></i> Invitaciones
                     </button>
                     ` : ''}
@@ -4074,26 +4156,26 @@ const CloudSyncModule = {
                         <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #4CAF50, #388E3C); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;">
                             <i class="fas fa-check" style="font-size: 2.5rem; color: white;"></i>
                         </div>
-                        <h2 style="margin: 0 0 0.5rem 0; color: #4CAF50;">Conectado!</h2>
+                        <h2 style="margin: 0 0 0.5rem 0; color: #4CAF50;">¡Conectado!</h2>
                         <p style="color: #666; margin: 0;">${Utils.escapeHtml(business.name)}</p>
                     </div>
                     
                     <div style="display: grid; gap: 1rem; margin-bottom: 2rem;">
                         <div style="padding: 1.5rem; background: #f5f5f5; border-radius: 8px;">
-                            <div style="display: flex; align-items: center; gap: 1rem;">
+                            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
                                 <i class="fas fa-user-circle" style="font-size: 2rem; color: #2196F3;"></i>
-                                <div style="flex: 1;">
-                                    <div style="font-weight: bold;">${Utils.escapeHtml(user.name)}</div>
-                                    <div style="color: #666; font-size: 0.9rem;">${this.getRoleLabel(user.role)}</div>
+                                <div style="flex: 1; min-width: 0;">
+                                    <div style="font-weight: bold; overflow: hidden; text-overflow: ellipsis;">${Utils.escapeHtml(user.name)}</div>
+                                    <div style="color: #666; font-size: 0.9rem;">${Utils.escapeHtml(this.getRoleLabel(user.role))}</div>
                                 </div>
                             </div>
                         </div>
                         
                         <div style="padding: 1.5rem; background: #f5f5f5; border-radius: 8px;">
-                            <div style="display: flex; align-items: center; gap: 1rem;">
+                            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
                                 <i class="fas fa-sync" style="font-size: 2rem; color: #4CAF50;"></i>
-                                <div style="flex: 1;">
-                                    <div style="font-weight: bold;">Sincronizacion Automatica</div>
+                                <div style="flex: 1; min-width: 0;">
+                                    <div style="font-weight: bold;">Sincronización Automática</div>
                                     <div style="color: #666; font-size: 0.9rem;">Activa - Tiempo real</div>
                                 </div>
                             </div>
@@ -4106,7 +4188,7 @@ const CloudSyncModule = {
                         </button>
                         
                         <button onclick="CloudSyncModule.logout()" style="padding: 1rem; background: white; color: #f44336; border: 2px solid #f44336; border-radius: 8px; font-weight: bold; cursor: pointer;">
-                            <i class="fas fa-sign-out-alt"></i> Cerrar Sesion
+                            <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
                         </button>
                     </div>
                 </div>
@@ -4114,7 +4196,7 @@ const CloudSyncModule = {
                 ${isAdmin ? `
                 <!-- Tab: Usuarios -->
                 <div class="sync-tab-content" id="users-tab" style="display: none; background: white; padding: 2rem; border-radius: 0 0 12px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: .5rem;">
                         <h2 style="margin: 0;"><i class="fas fa-users"></i> Usuarios del Negocio</h2>
                         <button onclick="CloudSyncModule.loadUsers()" style="padding: 0.5rem 1rem; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer;">
                             <i class="fas fa-sync"></i> Recargar
@@ -4130,15 +4212,15 @@ const CloudSyncModule = {
                 
                 <!-- Tab: Invitaciones -->
                 <div class="sync-tab-content" id="invitations-tab" style="display: none; background: white; padding: 2rem; border-radius: 0 0 12px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                        <h2 style="margin: 0;"><i class="fas fa-ticket-alt"></i> Codigos de Invitacion</h2>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: .5rem;">
+                        <h2 style="margin: 0;"><i class="fas fa-ticket-alt"></i> Códigos de Invitación</h2>
                         <button onclick="CloudSyncModule.showCreateInvitation()" style="padding: 0.5rem 1rem; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer;">
-                            <i class="fas fa-plus"></i> Crear Codigo
+                            <i class="fas fa-plus"></i> Crear Código
                         </button>
                     </div>
                     <div id="invitations-list">
                         <div style="text-align: center; padding: 2rem; color: #666;">
-                            <p>Crea codigos de invitacion para agregar nuevos usuarios</p>
+                            <p>Crea códigos de invitación para agregar nuevos usuarios</p>
                         </div>
                     </div>
                 </div>
@@ -4151,35 +4233,121 @@ const CloudSyncModule = {
         // AuthManager y SyncEngine ya estan inicializados globalmente en App.init()
         // Solo verificar estado
         if (window.AuthManager.isAuthenticated()) {
-            console.log('Sesion activa en CloudSync');
+            console.log('✅ Sesion activa en CloudSync');
         } else {
-            console.log('No hay sesion en CloudSync');
+            console.log('ℹ️ No hay sesion en CloudSync');
         }
     },
     
     switchTab(tabName) {
-        // Actualizar estilos de tabs
-        document.querySelectorAll('.login-tab').forEach(tab => {
-            tab.classList.remove('active');
-            tab.style.borderBottom = '3px solid transparent';
-            tab.style.color = '#666';
-        });
-        
-        const activeTab = event.target.closest('.login-tab');
-        if (activeTab) {
-            activeTab.classList.add('active');
-            activeTab.style.borderBottom = '3px solid #2196F3';
-            activeTab.style.color = '#2196F3';
+        // Actualizar estilos de tabs (segmented control del nuevo login)
+        const segTelegram = document.getElementById('seg-telegram');
+        const segEmail = document.getElementById('seg-email');
+        if (segTelegram && segEmail) {
+            if (tabName === 'telegram') {
+                segTelegram.style.background = 'white';
+                segTelegram.style.boxShadow = '0 1px 4px rgba(0,0,0,.1)';
+                segEmail.style.background = 'none';
+                segEmail.style.boxShadow = 'none';
+            } else {
+                segEmail.style.background = 'white';
+                segEmail.style.boxShadow = '0 1px 4px rgba(0,0,0,.1)';
+                segTelegram.style.background = 'none';
+                segTelegram.style.boxShadow = 'none';
+            }
         }
-        
         // Mostrar formulario correspondiente
         document.querySelectorAll('.login-form').forEach(form => {
             form.style.display = 'none';
         });
-        
         const targetForm = document.getElementById(`${tabName}-form`);
         if (targetForm) {
             targetForm.style.display = 'block';
+        }
+    },
+
+    /** Alterna entre modo login y modo registro */
+    _switchLoginMode(mode) {
+        const tabLogin = document.getElementById('tab-login');
+        const tabRegister = document.getElementById('tab-register');
+        const loginBtn = document.getElementById('email-login-btn');
+        const registerBtn = document.getElementById('email-register-btn');
+        const forgotSection = document.getElementById('forgot-section');
+        const loginBtnText = document.getElementById('login-btn-text');
+
+        if (mode === 'register') {
+            if (tabLogin) { tabLogin.style.color = '#999'; tabLogin.style.borderBottom = '3px solid transparent'; }
+            if (tabRegister) { tabRegister.style.color = '#4CAF50'; tabRegister.style.borderBottom = '3px solid #4CAF50'; }
+            if (loginBtn) loginBtn.style.display = 'none';
+            if (registerBtn) registerBtn.style.display = 'flex';
+            if (forgotSection) forgotSection.style.display = 'none';
+        } else {
+            if (tabLogin) { tabLogin.style.color = '#4CAF50'; tabLogin.style.borderBottom = '3px solid #4CAF50'; }
+            if (tabRegister) { tabRegister.style.color = '#999'; tabRegister.style.borderBottom = '3px solid transparent'; }
+            if (loginBtn) loginBtn.style.display = 'flex';
+            if (registerBtn) registerBtn.style.display = 'none';
+            if (forgotSection) forgotSection.style.display = 'block';
+        }
+        // Asegurar que el tab email esté visible
+        this.switchTab('email');
+    },
+
+    /** Muestra/oculta la contraseña */
+    _togglePasswordVisibility() {
+        const input = document.getElementById('password-input');
+        const icon = document.getElementById('pwd-eye-icon');
+        if (!input) return;
+        if (input.type === 'password') {
+            input.type = 'text';
+            if (icon) { icon.classList.remove('fa-eye'); icon.classList.add('fa-eye-slash'); }
+        } else {
+            input.type = 'password';
+            if (icon) { icon.classList.remove('fa-eye-slash'); icon.classList.add('fa-eye'); }
+        }
+    },
+
+    /** Muestra el modal de recuperación de contraseña */
+    _showForgotPassword() {
+        const modal = document.createElement('div');
+        modal.className = 'modal active';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width:400px;">
+                <div class="modal-header">
+                    <h3><i class="fas fa-key"></i> Recuperar contraseña</h3>
+                    <button class="close-modal" onclick="this.closest('.modal').remove()"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body" style="padding:1.5rem;">
+                    <p style="margin-bottom:1rem;color:#666;font-size:.9rem;">
+                        Ingresa tu email y te enviaremos un enlace de recuperación a tu Telegram o email.
+                    </p>
+                    <div class="form-group">
+                        <label for="forgot-email" style="font-weight:600;font-size:.9rem;">Email</label>
+                        <input type="email" id="forgot-email" class="form-control" placeholder="tu@email.com" inputmode="email" autocomplete="email" style="margin-top:.4rem;">
+                    </div>
+                    <div id="forgot-msg" style="margin-top:.75rem;font-size:.85rem;display:none;"></div>
+                    <button onclick="CloudSyncModule._submitForgotPassword()"
+                            style="width:100%;margin-top:1rem;padding:1rem;background:linear-gradient(135deg,#2196F3,#1976D2);color:white;border:none;border-radius:8px;font-weight:700;cursor:pointer;">
+                        <i class="fas fa-paper-plane"></i> Enviar enlace
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        setTimeout(() => { const el = document.getElementById('forgot-email'); if (el) el.focus(); }, 100);
+    },
+
+    async _submitForgotPassword() {
+        const email = (document.getElementById('forgot-email') || {}).value || '';
+        const msgEl = document.getElementById('forgot-msg');
+        if (!email || !email.includes('@')) {
+            if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#f44336'; msgEl.textContent = 'Ingresa un email válido.'; }
+            return;
+        }
+        try {
+            await window.AuthManager.forgotPassword(email);
+            if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#4CAF50'; msgEl.textContent = 'Si el email existe, recibirás un enlace en breve.'; }
+        } catch(e) {
+            if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#f44336'; msgEl.textContent = e.message || 'Error al enviar.'; }
         }
     },
     
@@ -4243,44 +4411,110 @@ const CloudSyncModule = {
     async handleEmailLogin() {
         const email = document.getElementById('email-input').value.trim();
         const password = document.getElementById('password-input').value;
-        
+        const keepSession = document.getElementById('keep-session')?.checked !== false;
+
         if (!email || !password) {
             this.showMessage('Completa todos los campos', 'error');
             return;
         }
-        
+
+        const btn = document.getElementById('email-login-btn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Iniciando...'; }
+
         try {
-            const result = await window.AuthManager.loginWithEmail(email, password);
+            const result = await window.AuthManager.loginWithEmail(email, password, keepSession);
             if (result.success) {
-                this.showMessage('Login exitoso! Recargando...', 'success');
-                setTimeout(() => App.loadPage('cloud-sync'), 1000);
+                // Persistir email para autocompletar en próximos accesos
+                localStorage.setItem('galloli_last_email', email);
+                this.showMessage('¡Sesión iniciada! Cargando...', 'success');
+                setTimeout(() => App.loadPage('cloud-sync'), 800);
             }
         } catch (error) {
             this.showMessage(error.message, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> <span id="login-btn-text">Iniciar Sesión</span>'; }
         }
     },
     
     async handleEmailRegister() {
         const email = document.getElementById('email-input').value.trim();
         const password = document.getElementById('password-input').value;
-        
+        const nameInput = document.getElementById('register-name');
+        const inviteInput = document.getElementById('register-invite');
+        const name = nameInput ? nameInput.value.trim() : '';
+        const invitationCode = inviteInput ? inviteInput.value.trim() : '';
+
         if (!email || !password) {
-            this.showMessage('Completa todos los campos', 'error');
+            this.showMessage('Completa email y contraseña', 'error');
             return;
         }
-        
-        const name = prompt('Como te llamas?');
-        if (!name) return;
-        
+        if (password.length < 6) {
+            this.showMessage('La contraseña debe tener al menos 6 caracteres', 'error');
+            return;
+        }
+
+        // Si no hay campos de nombre/invitación en el DOM, mostrar el formulario extendido
+        if (!nameInput) {
+            this._showRegisterExtendedFields();
+            return;
+        }
+        if (!name) {
+            this.showMessage('Ingresa tu nombre', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('email-register-btn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creando cuenta...'; }
+
         try {
-            const result = await window.AuthManager.registerWithEmail(email, password, name);
+            let result;
+            if (invitationCode) {
+                // Registro con código de invitación → se une al negocio del dueño
+                result = await window.AuthManager.registerWithInvitation(email, password, name, invitationCode);
+            } else {
+                // Registro normal → crea nuevo negocio
+                result = await window.AuthManager.registerWithEmail(email, password, name);
+            }
             if (result.success) {
-                this.showMessage('Registro exitoso! Recargando...', 'success');
-                setTimeout(() => App.loadPage('cloud-sync'), 1000);
+                localStorage.setItem('galloli_last_email', email);
+                this.showMessage('¡Cuenta creada! Cargando...', 'success');
+                setTimeout(() => App.loadPage('cloud-sync'), 800);
             }
         } catch (error) {
             this.showMessage(error.message, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-user-plus"></i> Crear Cuenta'; }
         }
+    },
+
+    /** Muestra los campos adicionales de registro (nombre + código de invitación) */
+    _showRegisterExtendedFields() {
+        const loginButtons = document.getElementById('login-buttons');
+        if (!loginButtons) return;
+
+        // Insertar campos antes de los botones
+        const fieldsHtml = `
+            <div id="register-extra-fields" style="margin-bottom:1rem;">
+                <div class="form-group" style="margin-bottom:.75rem;">
+                    <label for="register-name" style="display:block;margin-bottom:.4rem;font-weight:600;font-size:.9rem;">Tu nombre</label>
+                    <input type="text" id="register-name" name="register-name" class="form-control"
+                           placeholder="Ej: Juan Pérez" autocomplete="name">
+                    <div id="name-error" style="color:#f44336;font-size:.8rem;margin-top:.25rem;display:none;"></div>
+                </div>
+                <div class="form-group" style="margin-bottom:.75rem;">
+                    <label for="register-invite" style="display:block;margin-bottom:.4rem;font-weight:600;font-size:.9rem;">
+                        Código de invitación <span style="color:#999;font-weight:400;">(opcional)</span>
+                    </label>
+                    <input type="text" id="register-invite" name="register-invite" class="form-control"
+                           placeholder="Ej: ABC12345" autocomplete="off" maxlength="20"
+                           style="text-transform:uppercase;letter-spacing:.1rem;">
+                    <small style="color:#666;font-size:.78rem;display:block;margin-top:.3rem;">
+                        <i class="fas fa-info-circle"></i> Si tienes un código, te unirás al negocio de tu empleador.
+                        Sin código, se crea un negocio nuevo.
+                    </small>
+                </div>
+            </div>
+        `;
+        loginButtons.insertAdjacentHTML('beforebegin', fieldsHtml);
+        document.getElementById('register-name')?.focus();
     },
     
     async syncNow() {
@@ -4368,15 +4602,15 @@ const CloudSyncModule = {
                         </div>
                         ${u.id !== window.AuthManager.user.id && u.role !== 'super_admin' ? `
                         <div style="display: flex; gap: 0.5rem;">
-                            <button onclick="CloudSyncModule.changeUserRole('${u.id}', '${Utils.escapeHtml(u.name)}')" style="padding: 0.5rem 1rem; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            <button onclick="CloudSyncModule.changeUserRole('${u.id}', this.dataset.name)" data-name="${Utils.escapeHtml(u.name)}" style="padding: 0.5rem 1rem; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer;">
                                 <i class="fas fa-user-tag"></i> Cambiar Rol
                             </button>
                             ${u.is_active ? `
-                            <button onclick="CloudSyncModule.deactivateUser('${u.id}', '${Utils.escapeHtml(u.name)}')" style="padding: 0.5rem 1rem; background: #f44336; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            <button onclick="CloudSyncModule.deactivateUser('${u.id}', this.dataset.name)" data-name="${Utils.escapeHtml(u.name)}" style="padding: 0.5rem 1rem; background: #f44336; color: white; border: none; border-radius: 6px; cursor: pointer;">
                                 <i class="fas fa-ban"></i> Desactivar
                             </button>
                             ` : `
-                            <button onclick="CloudSyncModule.activateUser('${u.id}', '${Utils.escapeHtml(u.name)}')" style="padding: 0.5rem 1rem; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            <button onclick="CloudSyncModule.activateUser('${u.id}', this.dataset.name)" data-name="${Utils.escapeHtml(u.name)}" style="padding: 0.5rem 1rem; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer;">
                                 <i class="fas fa-check"></i> Activar
                             </button>
                             `}
@@ -4414,7 +4648,7 @@ const CloudSyncModule = {
                 </div>
                 <div class="modal-body">
                     <p style="margin-bottom: 1rem;">Usuario: <strong>${userName}</strong></p>
-                    <label for="new-role" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nuevo Rol:</label>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nuevo Rol:</label>
                     <select id="new-role" style="width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem; margin-bottom: 1rem;">
                         ${roleOptions}
                     </select>
@@ -4505,19 +4739,19 @@ const CloudSyncModule = {
                 </div>
                 <div class="modal-body">
                     <div style="margin-bottom: 1rem;">
-                        <label for="invitation-role" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Rol del Usuario:</label>
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Rol del Usuario:</label>
                         <select id="invitation-role" style="width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem;">
                             ${roleOptions}
                         </select>
                     </div>
                     
                     <div style="margin-bottom: 1rem;">
-                        <label for="invitation-max-uses" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Usos Máximos:</label>
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Usos Máximos:</label>
                         <input type="number" id="invitation-max-uses" value="1" min="1" max="100" style="width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem;">
                     </div>
                     
                     <div style="margin-bottom: 1rem;">
-                        <label for="invitation-expires" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Expira en (horas):</label>
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Expira en (horas):</label>
                         <input type="number" id="invitation-expires" value="24" min="1" max="720" style="width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem;">
                         <small style="color: #666; display: block; margin-top: 0.5rem;">Dejar vacio para que no expire</small>
                     </div>
@@ -4612,6 +4846,7 @@ const CloudSyncModule = {
     
     showMessage(message, type) {
         const msgDiv = document.getElementById('login-message');
+        if (!msgDiv) return; // El elemento no existe si no estamos en la pagina de login
         msgDiv.textContent = message;
         msgDiv.style.display = 'block';
         msgDiv.style.background = type === 'error' ? '#ffebee' : '#e8f5e9';

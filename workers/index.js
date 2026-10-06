@@ -546,6 +546,27 @@ async function runScheduledPushNotifications(env, { merma = true, creditos = tru
   }
 }
 
+// Verificación de roles en endpoints protegidos
+function requireRole(user, perms) {
+  const matrix = {
+    super_admin: '*',
+    admin: ['sales.create','sales.edit','sales.delete','clients.crud','products.crud','prices.edit','expenses.crud','expenses.delete','merma.create','routes.assign','routes.execute','orders.manage','reports.view','users.manage','invitations.create','auto-sale.engine','sri.facturar'],
+    vendedor:   ['sales.create','sales.edit','clients.crud','merma.create','routes.execute','orders.manage','auto-sale.engine'],
+    repartidor: ['sales.create','routes.execute','orders.manage'],
+    contador:   ['expenses.crud','reports.view','sri.facturar'],
+    viewer:     ['reports.view'],
+  };
+  const list = matrix[user.role];
+  if (list === '*') return;
+  for (const p of perms) {
+    if (!list || !list.includes(p)) {
+      const err = new Error('forbidden:' + p);
+      err.status = 403;
+      throw err;
+    }
+  }
+}
+
 // Helper functions
 function jsonResponse(data, headers = {}, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -847,84 +868,94 @@ async function handleAuth(request, env, path, corsHeaders) {
     }, corsHeaders);
   }
   
-  // POST /api/auth/email/register - Registro con email
+  // POST /api/auth/email/register - Registro con email (con soporte de invitation_code)
   if (path === '/api/auth/email/register' && method === 'POST') {
-    const { email, password, name } = await getRequestBody(request);
-    
+    const { email, password, name, invitation_code } = await getRequestBody(request);
+
     if (!email || !password || !name) {
       return jsonResponse({ error: 'Email, password y name requeridos' }, corsHeaders, 400);
     }
-    
+    if (password.length < 6) {
+      return jsonResponse({ error: 'La contraseña debe tener al menos 6 caracteres' }, corsHeaders, 400);
+    }
+
     // Verificar si email ya existe
-    const existing = await env.DB.prepare(`
-      SELECT id FROM users WHERE email = ?
-    `).bind(email).first();
-    
+    const existing = await env.DB.prepare(
+      `SELECT id FROM users WHERE email = ?`
+    ).bind(email.toLowerCase().trim()).first();
     if (existing) {
       return jsonResponse({ error: 'Email ya registrado' }, corsHeaders, 409);
     }
-    
-    // Crear negocio y usuario
-    const businessId = generateId();
+
     const userId = generateId();
     const passwordHash = await hashPassword(password);
-    
-    await env.DB.prepare(`
-      INSERT INTO businesses (id, name, owner_user_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).bind(businessId, `Negocio de ${name}`, userId, Date.now(), Date.now()).run();
-    
+    let businessId, userRole;
+
+    if (invitation_code) {
+      // ── Registro con código de invitación: unirse al negocio del dueño ──
+      const invite = await env.DB.prepare(`
+        SELECT * FROM invitation_codes
+        WHERE code = ? AND is_active = 1
+          AND (expires_at IS NULL OR expires_at > ?)
+          AND (max_uses = 0 OR uses < max_uses)
+      `).bind(invitation_code.toUpperCase().trim(), Date.now()).first();
+
+      if (!invite) {
+        return jsonResponse({ error: 'Código de invitación inválido, expirado o ya usado' }, corsHeaders, 400);
+      }
+
+      businessId = invite.business_id;
+      userRole   = invite.role || 'vendedor';
+
+      // Incrementar uso del código
+      await env.DB.prepare(
+        `UPDATE invitation_codes SET uses = uses + 1 WHERE code = ?`
+      ).bind(invite.code).run();
+
+      // Desactivar si alcanzó el límite
+      if (invite.max_uses > 0 && invite.uses + 1 >= invite.max_uses) {
+        await env.DB.prepare(
+          `UPDATE invitation_codes SET is_active = 0 WHERE code = ?`
+        ).bind(invite.code).run();
+      }
+    } else {
+      // ── Registro normal: crear nuevo negocio ──
+      businessId = generateId();
+      userRole   = 'super_admin';
+
+      await env.DB.prepare(`
+        INSERT INTO businesses (id, name, owner_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(businessId, `Negocio de ${name}`, userId, Date.now(), Date.now()).run();
+    }
+
     await env.DB.prepare(`
       INSERT INTO users (id, business_id, email, password_hash, name, role, is_active, created_at, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      userId,
-      businessId,
-      email,
-      passwordHash,
-      name,
-      'super_admin',
-      1,
-      Date.now(),
-      Date.now()
-    ).run();
-    
-    // Crear token
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).bind(userId, businessId, email.toLowerCase().trim(), passwordHash, name, userRole, Date.now(), Date.now()).run();
+
     const tokenPayload = {
       user_id: userId,
       business_id: businessId,
-      role: 'super_admin',
+      role: userRole,
       exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
     };
-    
     const token = await createJWT(tokenPayload, env.JWT_SECRET);
-    
-    // Guardar sesión
+
     await env.DB.prepare(`
       INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, last_activity)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(
-      generateId(),
-      userId,
-      await hashPassword(token),
-      Date.now(),
-      Date.now() + (30 * 24 * 60 * 60 * 1000),
-      Date.now()
-    ).run();
-    
+    `).bind(generateId(), userId, await hashPassword(token), Date.now(),
+            Date.now() + (30 * 24 * 60 * 60 * 1000), Date.now()).run();
+
+    const business = await env.DB.prepare(
+      `SELECT id, name FROM businesses WHERE id = ?`
+    ).bind(businessId).first();
+
     return jsonResponse({
       token,
-      user: {
-        id: userId,
-        business_id: businessId,
-        email,
-        name,
-        role: 'super_admin'
-      },
-      business: {
-        id: businessId,
-        name: `Negocio de ${name}`
-      }
+      user: { id: userId, business_id: businessId, name, role: userRole },
+      business: { id: businessId, name: business?.name || `Negocio de ${name}` }
     }, corsHeaders);
   }
   
@@ -1161,6 +1192,92 @@ async function handleAuth(request, env, path, corsHeaders) {
     }
   }
   
+  // POST /api/auth/email/forgot — Solicitar recuperación de contraseña
+  if (path === '/api/auth/email/forgot' && method === 'POST') {
+    const { email } = await getRequestBody(request);
+    if (!email) return jsonResponse({ success: true }, corsHeaders); // no revelar si existe
+
+    try {
+      const user = await env.DB.prepare(
+        `SELECT id, telegram_id, name FROM users WHERE email = ? AND is_active = 1 LIMIT 1`
+      ).bind(email.toLowerCase().trim()).first();
+
+      if (user) {
+        // Generar token de 32 bytes hex
+        const rawToken = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+          .map(b => b.toString(16).padStart(2, '0')).join('');
+        const tokenHash = await hashPassword(rawToken);
+        const expiresAt = Date.now() + 30 * 60 * 1000; // 30 min
+
+        await env.DB.prepare(
+          `INSERT INTO password_resets (id, user_id, token_hash, expires_at, created_at)
+           VALUES (?, ?, ?, ?, ?)`
+        ).bind(generateId(), user.id, tokenHash, expiresAt, Date.now()).run();
+
+        const resetLink = `https://galloli.ivapps.store/?reset=${rawToken}`;
+        const msg = `🔑 *GallOli — Recuperar contraseña*\n\nHola ${user.name},\n\nTu enlace de recuperación (válido 30 min):\n${resetLink}\n\nSi no solicitaste esto, ignora este mensaje.`;
+
+        // Enviar por Telegram si tiene cuenta vinculada
+        if (user.telegram_id && env.TELEGRAM_BOT_TOKEN) {
+          await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: user.telegram_id, text: msg, parse_mode: 'Markdown' })
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.error('forgot password error:', e);
+    }
+
+    // Siempre 200 para no revelar si el email existe
+    return jsonResponse({ success: true, message: 'Si el email existe, recibirás un enlace en breve.' }, corsHeaders);
+  }
+
+  // POST /api/auth/email/reset — Establecer nueva contraseña con token
+  if (path === '/api/auth/email/reset' && method === 'POST') {
+    const { token, password } = await getRequestBody(request);
+    if (!token || !password || password.length < 6) {
+      return jsonResponse({ error: 'Token y contraseña (mín. 6 caracteres) requeridos' }, corsHeaders, 400);
+    }
+
+    const tokenHash = await hashPassword(token);
+    const record = await env.DB.prepare(
+      `SELECT * FROM password_resets WHERE token_hash = ? AND expires_at > ? AND used_at IS NULL LIMIT 1`
+    ).bind(tokenHash, Date.now()).first();
+
+    if (!record) {
+      return jsonResponse({ error: 'Token inválido o expirado' }, corsHeaders, 400);
+    }
+
+    const passwordHash = await hashPassword(password);
+    await env.DB.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`)
+      .bind(passwordHash, record.user_id).run();
+    await env.DB.prepare(`UPDATE password_resets SET used_at = ? WHERE id = ?`)
+      .bind(Date.now(), record.id).run();
+
+    return jsonResponse({ success: true, message: 'Contraseña actualizada correctamente' }, corsHeaders);
+  }
+
+  // POST /api/auth/email/recover-by-telegram — Recuperar email enmascarado por Telegram ID
+  if (path === '/api/auth/email/recover-by-telegram' && method === 'POST') {
+    const { telegram_id } = await getRequestBody(request);
+    if (!telegram_id) return jsonResponse({ error: 'telegram_id requerido' }, corsHeaders, 400);
+
+    const user = await env.DB.prepare(
+      `SELECT email FROM users WHERE telegram_id = ? AND is_active = 1 LIMIT 1`
+    ).bind(String(telegram_id)).first();
+
+    if (!user || !user.email) {
+      return jsonResponse({ error: 'No se encontró ninguna cuenta con ese Telegram ID' }, corsHeaders, 404);
+    }
+
+    // Enmascarar: j***@gmail.com
+    const [local, domain] = user.email.split('@');
+    const masked = local[0] + '***@' + domain;
+    return jsonResponse({ email: masked }, corsHeaders);
+  }
+
   return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
   
   } catch (error) {
@@ -1469,6 +1586,28 @@ async function handleSync(request, env, path, corsHeaders, currentUser) {
       if (!data_type || !data_id || !action) {
         results.push({ error: 'Campos requeridos faltantes', change });
         continue;
+      }
+
+      // Defensa en profundidad: los borrados exigen el permiso del tipo de dato.
+      // El frontend ya oculta los botones, pero cualquiera puede forzar el fetch.
+      if (action === 'delete') {
+        const permisosPorTipo = {
+          sales: 'sales.delete',
+          expenses: 'expenses.delete',
+          orders: 'orders.manage',
+          clients: 'clients.crud',
+          products: 'products.crud',
+          prices: 'prices.edit'
+        };
+        const permisoRequerido = permisosPorTipo[data_type];
+        if (permisoRequerido) {
+          try {
+            requireRole(currentUser, [permisoRequerido]);
+          } catch (permError) {
+            results.push({ error: permError.message, change });
+            continue;
+          }
+        }
       }
       
       try {

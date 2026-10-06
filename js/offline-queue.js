@@ -34,7 +34,7 @@ class OfflineQueueManager {
         // Cargar cambios pendientes desde IndexedDB
         await this.loadQueueFromDB();
         
-        // Começar a procesar cambios en la cola
+        // Comenzar a procesar cambios en la cola
         this.startProcessing();
         
         console.log(`✅ Cola offline lista (${this.queue.length} cambios pendientes)`);
@@ -212,7 +212,7 @@ class OfflineQueueManager {
                     }
                 } catch (error) {
                     console.error(`❌ Error procesando batch ${batchIndex + 1}:`, error);
-                    
+
                     const esPermanente = !!error.permanent;
 
                     // Incrementar reintentos (o descartar definitivamente si es 401/403)

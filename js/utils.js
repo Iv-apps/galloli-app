@@ -331,6 +331,10 @@ const Utils = {
     }
 };
 
+// NOTA: el sistema de permisos por rol vive UNA sola vez en js/permissions.js
+// (window.Perm con can/require/applyDom/role). No declarar aqui otro "Perm":
+// un `const Perm` global tapaba a window.Perm y rompia Perm.applyDom en cada carga.
+
 // Módulo de Ubicación
 const LocationModule = {
     currentLocation: '',

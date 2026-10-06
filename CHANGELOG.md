@@ -7,6 +7,54 @@ El historial completo está en `git log`.
 > Nota: la rama `apk-native` (APK nativo de producción) lleva su propio historial de cambios;
 > los arreglos comunes se aplican en las dos ramas por separado.
 
+## [7.20.47] — 2026-10-06
+
+Paridad con la rama `apk-native` (APK nativo): la PWA/TWA recibe las funciones y arreglos que
+hasta ahora solo existían en la rama nativa.
+
+### Añadido
+- **Sistema de permisos por rol** (`js/permissions.js`): fuente única de `window.Perm`
+  (`can` / `require` / `applyDom` / `role`) con la matriz de permisos. Los botones de borrar venta
+  y de borrar gasto se ocultan si el rol no tiene `sales.delete` / `expenses.delete`.
+- **Recuperación de contraseña**: el Worker genera un token de 32 bytes (guardado hasheado en la
+  tabla `password_resets`, caduca a los 30 min) y lo envía al Telegram del usuario. El enlace
+  `?reset=<token>` abre el modal de nueva contraseña, validando el token como hex antes de usarlo.
+  Se agrega el botón "¿Olvidaste tu contraseña?" en el login.
+- **Registro con código de invitación**: el empleado se une al negocio del dueño con el rol
+  asignado, en lugar de crear siempre un negocio nuevo.
+- **Login rediseñado**: pestañas Iniciar sesión / Crear cuenta, Telegram/Email segmentado,
+  mostrar/ocultar contraseña y recordar el último email usado.
+- **`js/weight-stability.js`**: detector de peso estable (ventana de tiempo + tolerancia),
+  compartido entre primer plano y segundo plano.
+- **Buscador de créditos**: filtra las tarjetas de deuda por nombre o teléfono.
+- **CSS responsive global**: safe-areas, `dvh` en modales, botones de 44 px de alto mínimo,
+  tablas que pasan a tarjetas en pantallas chicas y ajustes para ≤360 px y ≤280 px.
+
+### Corregido
+- **Worker — defensa en profundidad**: `/api/sync/push` con `action=delete` ahora exige el permiso
+  del tipo de dato (`sales.delete`, `expenses.delete`, `orders.manage`, `clients.crud`,
+  `products.crud`, `prices.edit`). Antes cualquiera podía forzar un borrado llamando la API.
+- **Coordenadas**: `ClientsModule.addClient()` rechaza `(0,0)` y valores fuera de rango, y
+  normaliza a `{ lat, lng }`.
+- **Mapa de ubicación**: se eliminó el fallback fijo a Ciudad de México. Ahora usa la última
+  posición conocida y sigue la posición en vivo (`watchPosition`) con `enableHighAccuracy`.
+- **Estadísticas duplicadas al vender**: `SalesModule.addSale()` ya actualizaba al cliente; se
+  quitó la segunda llamada a `updateClientStats()`.
+- **`escapeHtml` fuera de contexto HTML**: se quitó de las notificaciones del sistema, de los PDF
+  y del estado del GPS de rutas, donde el texto es plano y se veía `&amp;` literal.
+- **`[hidden]` anulado por CSS**: `.chip { display: flex }` hacía visible el chip "AUTO" aunque
+  tuviera el atributo `hidden`. Se agregó `[hidden] { display: none !important; }`.
+- **`CustomSelect.destroy()`**: verifica que el wrapper y el select sigan en el DOM antes de
+  tocarlos (evita `TypeError` si un `innerHTML` los borró).
+- Mojibake restante: `eliminarxn` -> `eliminará`, `Podrxs` -> `Podrás`.
+
+### Notas de despliegue de esta versión
+- **Worker**: se despliega desde `workers/` (`wrangler deploy`) **antes** que Pages.
+- **PWA/TWA**: `wrangler pages deploy . --project-name=galloli --branch=main` desde `main`.
+- **TWA (AAB)**: no cambian permisos nativos ni configuración del TWA; no hace falta recompilar,
+  el cambio entra con el deploy de Pages.
+- **APK**: `apk-native` es la rama del APK nativo; sus cambios se despliegan por separado.
+
 ## [7.20.46] — 2026-10-05
 
 Auditoría de la PWA/TWA (rama `main`). Correcciones:
@@ -63,7 +111,7 @@ Auditoría de la PWA/TWA (rama `main`). Correcciones:
   todo commiteado.
 - **TWA (AAB)**: no cambian permisos ni configuración nativa -> no hace falta recompilar el AAB;
   el cambio entra solo con el deploy de Pages, porque el TWA carga el sitio.
-- **APK**: `git push origin main` dispara `build-android.yml`.
+- **APK**: la rama `main` no tiene workflows propios; el APK lo construye la rama `apk-native` con su workflow.
 
 ## [7.20.45] — 2026-07-30
 - `deleteOrder` y `deleteExpense` notifican al servidor con `action=delete`;

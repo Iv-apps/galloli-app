@@ -99,3 +99,6 @@ signing-key-info*
 # Python (scripts de CI)
 __pycache__/
 *.pyc
+
+# Paquete de venta generado (sale/construir-paquete.py)
+dist/

@@ -4,6 +4,71 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 El versionado se hace por `APP_VERSION` en `sw.js`, replicado en `version.json` y `package.json`.
 El historial completo y detallado está en `git log`.
 
+## [7.20.48] — 2026-10-06
+
+Splash animado de verdad, "Mantener sesión iniciada" que hace algo, precache del service
+worker y —lo importante— **el envío del APK a Telegram deja de fallar en silencio**.
+
+### Corregido
+- **El APK no llegaba a Telegram desde hacía varios builds y el run salía verde.** El log del
+  run #39 mostraba `EOFError: EOF when reading a line` en el paso *Send APK to Telegram*: la
+  `TELEGRAM_SESSION` no servía, así que Telethon pedía el teléfono por stdin y moría. El
+  `continue-on-error: true` convertía ese fallo en un ✅. Ahora:
+  - el cliente usa `connect()` + `is_user_authorized()` en vez de `async with TelegramClient(...)`
+    (nada de prompts interactivos en CI);
+  - los secrets se validan antes de conectar (faltantes y longitud de la `StringSession`) y se
+    publica un `sha256[:12]` de la sesión para comparar org vs repo sin exponerla;
+  - el motivo del fallo se escribe en el **resumen del run** y un paso extra emite una anotación
+    `::error::`, así que un fallo ya no puede pasar desapercibido.
+- **El APK se enviaba "al primer canal que apareciera"**: si no encontraba el canal por nombre,
+  el fallback viejo devolvía el primer canal de la cuenta. Ahora la resolución es determinista
+  (`@usuario` → enlace de invitación → título exacto → **crear el canal**) y, si no hay destino,
+  el script falla en vez de enviar a cualquier lado.
+- **`"Mantener sesión iniciada" no hacía nada**: `CloudSyncModule.handleEmailLogin()` pasaba
+  `keepSession` a `AuthManager.loginWithEmail()`, que ignoraba el tercer argumento. Ahora, sin
+  marcar la casilla, la sesión vive solo en `sessionStorage` (muere al cerrar la app) y
+  `clearSession()` la borra también.
+- **El splash casi no se veía**: `init()` terminaba antes de que se apreciara la animación.
+  `App.hideSplash()` respeta ahora un mínimo de 1400 ms (`SPLASH_MIN_MS`, 200 ms si el usuario
+  pidió `prefers-reduced-motion`).
+- **Precache del service worker**: faltaban `/js/permissions.js` y `/js/ble-bundle.js`, que sí
+  carga `index.html`. Con el SW viejo, `Perm` podía no estar en el primer arranque offline.
+
+### Agregado
+- **Splash animado propio** `#galloli-splash` en `index.html`: logo con *pop* y halo pulsante,
+  título/subtítulo que suben y barra de progreso, sobre `#185a83` (el mismo `windowBackground`
+  del tema Android, así no hay destello blanco). El CSS va *inline* con el markup y hay una red
+  de seguridad de 8 s que borra el div si nada más corrió.
+- **Canal dedicado `GallOli Artifacts`** para los artifacts de GallOli (antes todo caía en un
+  canal compartido buscado por nombre). Configurable con las *variables* `TELEGRAM_CHANNEL_TITLE`
+  / `TELEGRAM_CHANNEL_USERNAME` y el secret `TELEGRAM_CHANNEL_INVITE`.
+- `.github/scripts/telegram_setup.py`: desde tu PC inicia sesión, **crea el canal**, imprime los
+  secrets listos para pegar y con `--push-secrets` los sube solo (con `--limpiar-secrets-de-repo`
+  borra las copias del repo que tapan los de la organización).
+
+### Notas de despliegue
+- `node --check` en `js/app.js`, `js/auth.js` y `sw.js`; `py_compile` de los dos scripts de
+  Telegram (que además se probaron a mano en sus rutas de error: sin secrets, sesión corta y
+  APK ausente → mensaje claro y salida 1, sin traceback ni esperas).
+- Verificado en navegador: el splash pinta `#185a83`, se mantiene visible ~1,4 s, se desvanece y
+  se elimina del DOM; `loadSession()` recupera la sesión volátil y `saveSession(..., false)` no
+  escribe nada en IndexedDB.
+- **El resumen del paso "Get app version" salía vacío** (`grep -o \"'[^']*'\"` con comillas
+  anidadas dentro del YAML devolvía `grep: Unmatched [`), así que el caption del APK decía
+  `Versión: ?`. Ahora se extrae con `sed` y se comprueba en el log (`Version detectada: ...`).
+- Verificación del arreglo contra el CI real (run #40, commit `04d69c3`): el paso de Telegram ya
+  no muere con `EOFError`; el diagnóstico nuevo fue
+  `[info] session: 353 chars, sha256[:12]=987ce34021d6` +
+  `Motivo: TELEGRAM_SESSION existe pero Telegram la rechaza (sesion caducada, revocada o de otra
+  cuenta)`, el resumen del run lo registró y la anotación `::error::` marcó el fallo.
+- **Pendiente del dueño (último paso del envío a Telegram)**: el secret que se resuelve (la
+  copia del repo, de abril) es una sesión real pero muerta. Hay que regenerarla con tu teléfono:
+  `python .github/scripts/telegram_setup.py --push-secrets` (crea además el canal dedicado
+  `GallOli Artifacts`). Alternativa si la sesión buena estuviera en la organización:
+  `python .github/scripts/telegram_setup.py --limpiar-secrets-de-repo` y relanzar el workflow.
+  También sigue pendiente rotar el token de Cloudflare que estuvo en texto plano y quitar
+  `CLOUDFLARE_API_TOKEN`/`RESEND_API_KEY`/`SUPABASE_KEY` del entorno del espacio de trabajo.
+
 ## [7.20.47] — 2026-10-06
 
 Alineación de la rama nativa con la PWA/TWA (`main`) y dos arreglos propios.

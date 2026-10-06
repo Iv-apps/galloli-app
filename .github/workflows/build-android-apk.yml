@@ -293,7 +293,12 @@ jobs:
 
       - name: Get app version
         id: version
-        run: echo "APP_VERSION=$(grep -o 'APP_VERSION.*=.*' sw.js | head -1 | grep -o \"'[^']*'\" | head -1 | tr -d \"'\")" >> $GITHUB_OUTPUT
+        # El grep anterior con \" y comillas simples anidadas fallaba dentro del YAML: devolvia
+        # vacio (y el caption salia con "Version: ?"). Con sed y un solo juego de comillas, no.
+        run: |
+          VERSION=$(sed -n "s/.*APP_VERSION *= *'\([^']*\)'.*/\1/p" sw.js | head -1)
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version detectada: $VERSION"
 
       # El APK ya quedo subido como artifact: si Telegram falla, el build no se marca rojo.
       # PERO el fallo ya no puede pasar desapercibido: el script escribe el motivo en el
